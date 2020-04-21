@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 np.seterr(all='warn')
 
-from vindel.dwd_dataset import SiteDataset
+from windpower.dwd_dataset import SiteDataset
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
