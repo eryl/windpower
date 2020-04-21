@@ -6,7 +6,7 @@ def readme():
     with open('README.txt') as f:
         return f.read()
 
-setup(name='windower',
+setup(name='windpower',
       version='0.1',
       description='Windpower forecasting using the Greenlytics weather API',
       url='https://github.com/eryl/windpower',
