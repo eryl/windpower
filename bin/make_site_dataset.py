@@ -28,7 +28,7 @@ def main():
     with open(args.sites_file) as fp:
         sites = [site.strip() for site in fp if site.strip()]
 
-    pattern = re.compile(r'(DWD_ICON-EU)_(\d*\.\d*),(\d*\.\d*)_.*\.nc')
+    pattern = re.compile(r'(DWD_ICON-EU|NCEP_GFS)_(\d*\.\d*),(\d*\.\d*)_.*\.nc')
     weather_coordinate_files = dict()
     for f in args.weather_dataset_dir.glob('*.nc'):
         m = re.match(pattern, f.name)
@@ -45,10 +45,14 @@ def main():
         site_row = metadata[metadata['LP'] == site]
         lat = float(site_row['Lat'])
         lon = float(site_row['Lon'])
-        weather_file, weather_model = weather_coordinate_files[(lat, lon)]
+        try:
+            weather_file, weather_model = weather_coordinate_files[(lat, lon)]
+        except KeyError:
+            print(f"No weather data found for site at {lat},{lon}")
+            continue
         site_production = production_data[site].dropna()
         site_capacity = capacities[site].to_numpy()
-        normalized_site_production = (site_production / site_capacity).clip(0,1)
+        normalized_site_production = (site_production / site_capacity).clip(0, 1)
         normalized_site_production_dataarray = xr.DataArray(normalized_site_production)
         site_dataset = xr.open_dataset(weather_file)
         site_dataset['site_production'] = normalized_site_production_dataarray
