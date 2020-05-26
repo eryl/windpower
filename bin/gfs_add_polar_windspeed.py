@@ -23,8 +23,8 @@ def process_dataset(f):
     ds = xr.open_dataset(f)
 
     if 'phi' not in ds.variables:
-        x = ds['U']  # Zonal wind component
-        y = ds['V']  # Meridional wind component
+        x = ds['WindUMS_Height']  # Zonal wind component
+        y = ds['WindVMS_Height']  # Meridional wind component
         ds['r'] = np.sqrt(x**2 + y**2)
         ds['phi'] = np.arctan2(y, x)
         ds.to_netcdf(f)
