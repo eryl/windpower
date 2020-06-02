@@ -165,7 +165,7 @@ def main():
         metadata['site_dataset_path'] = site_dataset_path
         base_kwargs = dict(model=GradientBoostingRegressor, learning_rate=learning_rate,
                            n_estimators=n_estimators, subsample=subsample,
-                           max_depth=max_depth, max_features=max_features, n_jobs=-1)
+                           max_depth=max_depth, max_features=max_features)
         train_kwargs = dict(max_epochs=1,  #The random forest regressor doesn't do epochs
                             metadata=metadata,
                             keep_snapshots=False,)

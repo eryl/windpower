@@ -78,9 +78,16 @@ def split_datetimes(datetimes, splits, padding):
             # amount can be removed, the first fold of the pair will have one more removed
             fold_a_start, fold_a_end = fold_times[i]
             fold_b_start, fold_b_end = fold_times[i+1]
+            fold_a_start_datetime = datetimes[fold_a_start]
             fold_a_end_datetime = datetimes[fold_a_end]
             fold_b_start_datetime = datetimes[fold_b_start]
+            fold_b_end_datetime = datetimes[fold_b_end]
+            if fold_b_end_datetime - fold_a_start_datetime < padding_dt:
+                raise RuntimeError("Intervals can not be separated, padding is too large (likely dataset is too small): "
+                                   f"[{fold_a_start_datetime} ,{fold_a_start_datetime}], [{fold_b_start_datetime},  {fold_b_end_datetime}]")
+
             dt = (fold_b_start_datetime - fold_a_end_datetime).astype('timedelta64[h]')
+
             if dt < padding_dt:
                 all_pruned = False
                 # Remove one time from the fold with the most
@@ -93,10 +100,9 @@ def split_datetimes(datetimes, splits, padding):
     fold_lengths = [end - start for start, end in fold_times]
     return fold_times
 
-
 class SiteDataset(object):
     def __init__(self, *, dataset_path: Path,  window_length, production_offset, dataset=None, horizon=None,
-                 weather_variables=None, production_variable='site_production',
+                 weather_variables=None, production_variable='site_production', variable_definitions=None,
                  include_lead_time=False, include_time_of_day=False, one_hot_encode=False,
                  use_cache=None, reference_time=None, include_variable_index=False):
         if dataset is None:
@@ -113,45 +119,26 @@ class SiteDataset(object):
         self.horizon = horizon
         self.window_length = window_length
         self.production_offset = production_offset
+        self.one_hot_encode = one_hot_encode
         if weather_variables is None:
             raise ValueError("No weather variables specified")
-
         self.weather_variables = weather_variables
         self.production_variable = production_variable
         self.include_lead_time = include_lead_time
         self.include_time_of_day = include_time_of_day
         self.site_id = self.dataset.attrs['site_id']
-        self.variable_definitions = {}
-        self.one_hot_encode = one_hot_encode
+        self.variable_definitions = variable_definitions
+        if include_lead_time:
+            weather_variables['lead_time'] = Variable('lead_time')
+        if include_time_of_day:
+            weather_variables['time_of_day']: CategoricalVariable('time_of_day', levels=np.arange(24),
+                                                                  mapping={i: i for i in range(24)},
+                                                                  one_hot_encode=one_hot_encode)
         self.include_variable_index = include_variable_index
-        self.variable_definitions = {v: self.setup_variables(v)
-                                     for v in weather_variables}
         self.use_cache = use_cache
-        if self.include_lead_time:
-            self.variable_definitions['lead_time'] = self.setup_variables('lead_time')
-        if self.include_time_of_day:
-            self.variable_definitions['time_of_day'] = self.setup_variables('time_of_day')
-        self.variable_definitions[production_variable] = self.setup_variables(production_variable)
         self.setup_xref()
         if self.use_cache:
             self.setup_cache()
-
-    def setup_variables(self, variables):
-        default_map = {'phi': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
-                                                          one_hot_encode=self.one_hot_encode),
-                       'r': Variable('r'),
-                       'site_production': Variable('site_production'),
-                       'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
-                                                          mapping={i: i for i in range(24)},
-                                                          one_hot_encode=self.one_hot_encode),
-                       'lead_time': Variable('lead_time')}
-        if isinstance(variables, str):
-            return default_map[variables]
-        try:
-            return {v: default_map[v] for v in variables}
-        except TypeError:
-            ## On a type error the assumption is that variables is not iterable, so a single item
-            return default_map[variables]
 
     def get_variable_definition(self):
         return self.variable_definitions
@@ -328,6 +315,7 @@ class SiteDataset(object):
         kwargs = dict(window_length=self.window_length, production_offset=self.production_offset,
                       horizon=self.horizon, weather_variables=self.weather_variables,
                       production_variable=self.production_variable,
+                      variable_definitions=self.variable_definitions,
                       include_lead_time=self.include_lead_time, include_time_of_day=self.include_time_of_day,
                       include_variable_index=self.include_variable_index, dataset_path=self.dataset_path,
                       use_cache=self.use_cache, one_hot_encode=self.one_hot_encode)
@@ -351,58 +339,6 @@ class SiteDataset(object):
             fold = type(self)(dataset=self.dataset, reference_time=fold_times, **kwargs)
             remainder = type(self)(dataset=self.dataset, reference_time=remainder_times, **kwargs)
             yield fold, remainder
-
-
-class DWDSiteDataset(SiteDataset):
-    def __init__(self, *, weather_variables=('T', 'U', 'V', 'phi', 'r'), **kwargs):
-        super().__init__(weather_variables=weather_variables, **kwargs)
-
-    def setup_variables(self, variables):
-        default_map = {'T': Variable('T'),
-                       'U': Variable('U'),
-                       'V': Variable('V')}
-        if isinstance(variables, str):
-            try:
-                return default_map[variables]
-            except KeyError:
-                return super().setup_variables(variables)
-        try:
-            return {v: self.setup_variables(v) for v in variables}
-        except TypeError:
-            ## On a type error the assumption is that variables is not iterable, so a single item
-            try:
-                return default_map[variables]
-            except KeyError:
-                return super().setup_variables(variables)
-
-class GFSSiteDataset(SiteDataset):
-    def __init__(self, *, weather_variables=('WindUMS_Height',
-                                             'WindVMS_Height',
-                                             'Temperature_Height',
-                                             'PotentialTemperature_Sigma',
-                                             'WindGust',
-                                             'phi', 'r'), **kwargs):
-        super().__init__(weather_variables=weather_variables, **kwargs)
-
-    def setup_variables(self, variables):
-        default_map = {'WindUMS_Height': Variable('WindUMS_Height'),
-                       'WindVMS_Height': Variable('WindVMS_Height'),
-                       'Temperature_Height': Variable('Temperature_Height'),
-                       'PotentialTemperature_Sigma': Variable('PotentialTemperature_Sigma'),
-                       'WindGust': Variable('WindGust'),}
-        if isinstance(variables, str):
-            try:
-                return default_map[variables]
-            except KeyError:
-                return super().setup_variables(variables)
-        try:
-            return {v: self.setup_variables(v) for v in variables}
-        except TypeError:
-            ## On a type error the assumption is that variables is not iterable, so a single item
-            try:
-                return default_map[variables]
-            except KeyError:
-                return super().setup_variables(variables)
 
 
 class MultiSiteDataset(object):
