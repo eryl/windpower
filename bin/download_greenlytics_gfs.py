@@ -53,19 +53,19 @@ def main():
         download_data(args.data_dir, api_key, lat, lon, end_date=end_date)
 
 
-def download_data(data_dir, api_key, lat, lon, ref_times_per_request=20, freq=6, rate_limit=5,
+def download_data(data_dir, api_key, lat, lon, ref_times_per_request=200, freq=6, rate_limit=5,
                   start_date=datetime.datetime(2019, 6, 24, 6), end_date=None, overwrite=False):
     params = {
         'model': 'NCEP_GFS',
         # We trim away one hour, to not make overlapping requests
         'coords': {'latitude': [lat], 'longitude': [lon]},
-        'variables': ['WindGust',
+        'variables': [#'WindGust',
                       'WindUMS_Height',
                       'WindVMS_Height',
                       #'StormMotionU_Height',
                       #'StormMotionV_Height',
                       'Temperature_Height',
-                      'PotentialTemperature_Sigma',
+                      #'PotentialTemperature_Sigma',
         ],
         'freq': '{}H'.format(freq),
         # 'as_dataframe': True,
@@ -116,7 +116,18 @@ def download_data(data_dir, api_key, lat, lon, ref_times_per_request=20, freq=6,
             continue
         time.sleep(seconds_per_request)  # For now, we just sleep enough to pass the server rate limiter
         print("Making request with params: {}".format(json.dumps(params)))
-        response = requests.get(endpoint_url, headers=headers, params={'query_params': json.dumps(params)})
+
+        request_params = {'query_params': json.dumps(params)}
+        print(f"Headers: {headers}\nParams: {request_params}")
+        req = requests.Request('GET', endpoint_url, headers=headers, params=request_params).prepare()
+        print('{}\n{}\r\n{}\r\n\r\n{}'.format(
+            '-----------START-----------',
+            req.method + ' ' + req.url,
+            '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
+            req.body,
+        ))
+        s = requests.Session()
+        response = s.send(req)
         response.raise_for_status()
 
         ds = xa.Dataset.from_dict(json.loads(response.text))
