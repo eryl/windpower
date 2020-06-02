@@ -28,7 +28,7 @@ def main():
     with open(args.sites_file) as fp:
         sites = [site.strip() for site in fp if site.strip()]
 
-    pattern = re.compile(r'(DWD_ICON-EU|NCEP_GFS)_(\d*\.\d*),(\d*\.\d*)_.*\.nc')
+    pattern = re.compile(r'(DWD_ICON-EU|NCEP_GFS)_(\d*\.\d*),(\d*\.\d*).*\.nc')
     weather_coordinate_files = dict()
     for f in args.weather_dataset_dir.glob('*.nc'):
         m = re.match(pattern, f.name)
