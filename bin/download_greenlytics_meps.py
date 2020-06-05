@@ -4,11 +4,17 @@ from pathlib import Path
 
 import windpower.greenlytics_api
 
-MODEL = "FMI_HIRLAM"
-DEFAULT_VARIABLES = ["Temperature",
-                     "WindUMS",
-                     "WindVMS",
-                     ]
+MODEL = "MetNo_MEPS"
+DEFAULT_VARIABLES = [
+    "x_wind_10m",
+    "y_wind_10m",
+    "x_wind_z",
+    "y_wind_z",
+    "air_pressure_at_sea_level",
+    "air_temperature_0m",
+    "air_temperature_2m",
+    "air_temperature_z",
+]
 
 def main():
     parser = argparse.ArgumentParser(description='Script for downloading NWP data from the Greenlytics API')
@@ -26,7 +32,7 @@ def main():
     parser.add_argument('--api-key', help='Path to the api key file', default='../api_key')
     parser.add_argument('--freq', help='Get forecasts with this frequence in hours. ', type=int, default=6)
     parser.add_argument('--rate-limit', help='Maximum number of requests per minute', type=int, default=5)
-    parser.add_argument('--ref-time-per-request',
+    parser.add_argument('--ref-times-per-request',
                         help='For each request, limit number of reference times to this number',
                         type=int, default=int(1e4))
     parser.add_argument('--overwrite', help='If set, overwrite existing dataset files', action='store_true')
