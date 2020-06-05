@@ -96,24 +96,17 @@ def train(*, site_files,
     cleaned_site_files = []
     for f in site_files:
         if f.is_dir():
-            cleaned_site_files.extend(f.glob('*.nc'))
+            cleaned_site_files.extend(f.glob('**/*.nc'))
         else:
             cleaned_site_files.append(f)
+    if not cleaned_site_files:
+        print(f"No site files in site dataset files in {site_files}")
     site_files = cleaned_site_files
-    metadata = {
-        'variables_config': str(variables_config_path),
-        'model_config': str(model_config_path),
-        'training_config': str(training_config_path),
-        'dataset_config': str(dataset_config_path)
-    }
-
-    with open(experiment_dir / 'metadata.json', 'w') as fp:
-        json.dump(metadata, fp)
 
     base_model, base_args, base_kwargs = windpower.models.get_model_config(model_config_path)
     ml_model = model_config_path.with_suffix('').name
 
-    for site_dataset_path in tqdm(site_files):
+    for site_dataset_path in tqdm(sorted(site_files)):
         site_dataset = SiteDataset(dataset_path=site_dataset_path,
                                    variables_file=variables_config_path,
                                    dataset_config_file=dataset_config_path)
@@ -126,7 +119,15 @@ def train(*, site_files,
         shutil.copy(dataset_config_path, site_dir / 'dataset_config.py')
         shutil.copy(training_config_path, site_dir / 'training_config.py')
 
-        metadata['site_dataset_path'] = site_dataset_path
+        metadata = {
+            'experiment_config': {
+                'variables_config': str(variables_config_path),
+                'model_config': str(model_config_path),
+                'training_config': str(training_config_path),
+                'dataset_config': str(dataset_config_path),
+                'site_dataset_path': str(site_dataset_path)
+            }
+        }
 
         training_config = load_module(training_config_path)
         outer_folds = training_config.outer_folds
@@ -185,4 +186,5 @@ def train(*, site_files,
                                                                     training_dataset=train_dataset,
                                                                     evaluation_dataset=test_dataset,
                                                                     output_dir=fold_dir,
+                                                                    metadata=metadata,
                                                                     **train_kwargs)
