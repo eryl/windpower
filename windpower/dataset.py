@@ -4,7 +4,7 @@ import xarray as xr
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm, trange
-
+from windpower.utils import load_module
 
 class Variable(object):
     def __init__(self, name):
@@ -45,6 +45,8 @@ class CategoricalVariable(Variable):
             return self.inv_mapping[value]
 
 
+
+
 class DiscretizedVariableEvenBins(CategoricalVariable):
     def __init__(self, name, interval, bins, dtype=np.int32, **kwargs):
         self.start, self.end = interval
@@ -62,6 +64,16 @@ class DiscretizedVariableEvenBins(CategoricalVariable):
     def decode(self, bins):
         # find the correct edges and take the mean between them
         return (bins+0.5)*self.step_per_bin + self.start
+
+
+def read_variables_file(path):
+    """
+    Read and return the variable definitions, weather and production variables to use. The file should be a python
+    module containing the three variables VARIABLE_DEFINITIONS, WEATHER_VARIABLES and PRODUCTION_VARIABLE. These in turn
+    should be dictionaries with the different NWP models as keys, and the corresponding configurations as values.
+    :param path: Path to a python file containing the variables
+    :return: A truplet of (variable definition dict, weather variables, production variable)
+    """
 
 
 def split_datetimes(datetimes, splits, padding):
@@ -100,13 +112,23 @@ def split_datetimes(datetimes, splits, padding):
     fold_lengths = [end - start for start, end in fold_times]
     return fold_times
 
+def get_nwp_model(dataset, dataset_path):
+    if 'nwp_model' in dataset.attrs:
+        return dataset.attrs['nwp_model']
+    else:
+        import re
+        pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc')
+        m = re.match(pattern, dataset_path.name)
+        if m is not None:
+            (model,) = m.groups()
+            return model
+
 class SiteDataset(object):
-    def __init__(self, *, dataset_path: Path,  window_length, production_offset, dataset=None, horizon=None,
-                 weather_variables=None, production_variable='site_production', variable_definitions=None,
-                 include_lead_time=False, include_time_of_day=False, one_hot_encode=False,
-                 use_cache=None, reference_time=None, include_variable_index=False):
+    def __init__(self, *, dataset_path: Path,  variables_file, dataset_config_file,
+                 dataset=None, reference_time=None):
         if dataset is None:
             dataset = xr.open_dataset(dataset_path)
+        self.nwp_model = get_nwp_model(dataset, dataset_path)
         if reference_time is not None:
             dataset = dataset.sel(reference_time=reference_time)
         self.dataset_path = dataset_path
@@ -116,32 +138,34 @@ class SiteDataset(object):
         #if 'longitude' in self.dataset and len(self.dataset['longitude']) == 1:
         #    self.dataset = self.dataset.isel(longitude=0)
         self.reference_time = reference_time
-        self.horizon = horizon
-        self.window_length = window_length
-        self.production_offset = production_offset
-        self.one_hot_encode = one_hot_encode
-        if weather_variables is None:
-            raise ValueError("No weather variables specified")
-        self.weather_variables = weather_variables
-        self.production_variable = production_variable
-        self.include_lead_time = include_lead_time
-        self.include_time_of_day = include_time_of_day
+        self.dataset_config_file = dataset_config_file
+        self.read_dataset_config(dataset_config_file)
+        self.variables_file = variables_file
+        self.parse_variables_file(variables_file)
         self.site_id = self.dataset.attrs['site_id']
-        self.variable_definitions = variable_definitions
-        if include_lead_time:
-            weather_variables['lead_time'] = Variable('lead_time')
-        if include_time_of_day:
-            weather_variables['time_of_day']: CategoricalVariable('time_of_day', levels=np.arange(24),
-                                                                  mapping={i: i for i in range(24)},
-                                                                  one_hot_encode=one_hot_encode)
-        self.include_variable_index = include_variable_index
-        self.use_cache = use_cache
         self.setup_xref()
         if self.use_cache:
             self.setup_cache()
 
+    def parse_variables_file(self, variables_file):
+        variables_config = load_module(variables_file)
+        self.weather_variables = variables_config.WEATHER_VARIABLES[self.nwp_model]
+        self.variable_definitions = variables_config.VARIABLE_DEFINITIONS[self.nwp_model]
+        self.production_variable = variables_config.PRODUCTION_VARIABLE[self.nwp_model]
+
+    def read_dataset_config(self, dataset_config_file):
+        dataset_config = load_module(dataset_config_file)
+        self.horizon = dataset_config.horizon
+        self.window_length = dataset_config.window_length
+        self.production_offset = dataset_config.target_lag
+        self.include_variable_index = dataset_config.include_variable_index
+        self.use_cache = dataset_config.use_cache
+
     def get_variable_definition(self):
         return self.variable_definitions
+
+    def get_nwp_model(self):
+        return self.nwp_model
 
     def setup_xref(self):
         valid_time = self.dataset['valid_time']
@@ -185,18 +209,18 @@ class SiteDataset(object):
         self.n_windows = self.n_windows_per_forecast * len(self.forecast_production_offsets)
 
     def setup_cache(self):
-        keys = ([self.window_length,
-                 self.production_offset] +
-                list(self.weather_variables) +
-                [self.production_variable,
-                 self.include_lead_time,
-                 self.include_time_of_day,
-                 self.one_hot_encode])
-        key_string = ''.join(str(k) for k in keys)
-        reference_times = self.dataset['reference_time'].values
         key_hash = hashlib.md5()
-        key_hash.update(key_string.encode('utf8'))
-        key_hash.update(reference_times.tobytes())
+        # We need to identify the correct hash. We add variables which uniquely define this dataset
+        key_hash.update(bytes([self.window_length, self.horizon, self.production_offset]))
+        reference_time = self.dataset['reference_time'].values
+        key_hash.update(reference_time.tobytes())
+        with open(self.variables_file, 'rb') as fp:
+            BLOCK_SIZE = 65536
+            while True:
+                data = fp.read(BLOCK_SIZE)
+                if not data:
+                    break
+                key_hash.update(data)
         cache_key = key_hash.hexdigest()
         cache_file_name = self.dataset_path.with_suffix('').name + f'_cache-{cache_key}.npz'
         cache_file = self.dataset_path.with_name(cache_file_name)
@@ -240,32 +264,24 @@ class SiteDataset(object):
             window_data = self.dataset.isel(reference_time=forecast_i,
                                             valid_time=slice(window_offset_i, window_offset_i+self.window_length),
                                             production_time=window_offset_i+production_i)
-            date = window_data['reference_time'].values + np.timedelta64(window_offset_i, 'h')
-            time_of_day = (date.astype('datetime64[h]') - date.astype('datetime64[D]')).astype(int)
             x = []
             var_i = 0
             variable_index = dict()
             for v in self.weather_variables:
                 var_def = self.variable_definitions[v]
-                encoded_value = var_def.encode(window_data[v].values).flatten()
+                # We treat lead time separately at the moment
+                if v == 'lead_time':
+                    encoded_value = np.atleast_1d(var_def.encode(window_offset_i))
+                elif v == 'time_of_day':
+                    date = window_data['reference_time'].values + np.timedelta64(window_offset_i, 'h')
+                    time_of_day = (date.astype('datetime64[h]') - date.astype('datetime64[D]')).astype(int)
+                    encoded_value = np.atleast_1d(var_def.encode(time_of_day))
+                else:
+                    encoded_value = var_def.encode(window_data[v].values).flatten()
                 var_length = len(encoded_value)
                 variable_index[v] = (var_i, var_i+var_length)
                 var_i += var_length
-                x.append(encoded_value.flatten())
-            if self.include_lead_time:
-                var_def = self.variable_definitions['lead_time']
-                encoded_value = var_def.encode(window_offset_i)
-                var_length = 1
-                variable_index['lead_time'] = (var_i, var_i + var_length)
-                var_i += var_length
-                x.append([encoded_value])
-            if self.include_lead_time:
-                var_def = self.variable_definitions['time_of_day']
-                encoded_value = var_def.encode(time_of_day)
-                var_length = 1
-                variable_index['time_of_day'] = (var_i, var_i + var_length)
-                var_i += var_length
-                x.append([encoded_value])
+                x.append(encoded_value)
 
             x = np.concatenate(x)
             y = self.variable_definitions[self.production_variable].encode(window_data[self.production_variable].values)
@@ -312,13 +328,9 @@ class SiteDataset(object):
         # We do things simply, just divide the forecasts into k folds and remove enough of them in the ends so that we
         # satisfy the padding condition
 
-        kwargs = dict(window_length=self.window_length, production_offset=self.production_offset,
-                      horizon=self.horizon, weather_variables=self.weather_variables,
-                      production_variable=self.production_variable,
-                      variable_definitions=self.variable_definitions,
-                      include_lead_time=self.include_lead_time, include_time_of_day=self.include_time_of_day,
-                      include_variable_index=self.include_variable_index, dataset_path=self.dataset_path,
-                      use_cache=self.use_cache, one_hot_encode=self.one_hot_encode)
+        kwargs = dict(dataset_path=self.dataset_path,
+                      variables_file=self.variables_file,
+                      dataset_config_file=self.dataset_config_file)
 
         forecast_times = self.dataset['reference_time'].values
         fold_intervals = split_datetimes(forecast_times, k, padding+self.horizon)

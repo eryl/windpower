@@ -1,7 +1,9 @@
 import json
+import shutil
 from tqdm import tqdm
-from windpower.utils import timestamp
-from windpower.dataset import SiteDataset
+from windpower.utils import timestamp, load_module
+from windpower.dataset import SiteDataset, read_variables_file
+import windpower.models
 
 import argparse
 import csv
@@ -17,6 +19,7 @@ np.seterr(all='warn')
 import numpy as np
 import sklearn.metrics
 from sklearn.preprocessing import StandardScaler
+from dataclasses import dataclass
 
 import mltrain.train
 from mltrain.train import DiscreteHyperParameter, HyperParameterTrainer, BaseModel, LowerIsBetterMetric, HigherIsBetterMetric
@@ -76,41 +79,62 @@ class EnsembleModelWrapper(BaseModel):
         mae_metric = LowerIsBetterMetric('mean_absolute_error')
         mad_metric = LowerIsBetterMetric('median_absolute_deviance')
         r_squared_metric = HigherIsBetterMetric('r_squared')
-        return [mse_metric, mae_metric, rmse_metric, mad_metric, r_squared_metric]
+        return [mae_metric, mse_metric, rmse_metric, mad_metric, r_squared_metric]
 
     def save(self, save_path):
         with open(save_path, 'wb') as fp:
             pickle.dump(self.model, fp)
 
 
-def train(*, site_files, experiment_dir, window_length, target_lag, horizon,
-          weather_variables, variable_definitions, include_lead_time, include_time_of_day, one_hot_encode,
-          outer_folds, outer_xval_loops, inner_folds, inner_xval_loops,
-          hp_search_iterations, metadata, base_args, base_kwargs, train_kwargs):
+def train(*, site_files,
+          experiment_dir,
+          dataset_config_path,
+          variables_config_path,
+          model_config_path,
+          training_config_path):
 
-    experiment_dir = experiment_dir / timestamp()
-    experiment_dir.mkdir(parents=True)
+    cleaned_site_files = []
+    for f in site_files:
+        if f.is_dir():
+            cleaned_site_files.extend(f.glob('*.nc'))
+        else:
+            cleaned_site_files.append(f)
+    site_files = cleaned_site_files
+    metadata = {
+        'variables_config': str(variables_config_path),
+        'model_config': str(model_config_path),
+        'training_config': str(training_config_path),
+        'dataset_config': str(dataset_config_path)
+    }
 
     with open(experiment_dir / 'metadata.json', 'w') as fp:
         json.dump(metadata, fp)
 
+    base_model, base_args, base_kwargs = windpower.models.get_model_config(model_config_path)
+    ml_model = model_config_path.with_suffix('').name
+
     for site_dataset_path in tqdm(site_files):
         site_dataset = SiteDataset(dataset_path=site_dataset_path,
-                                   window_length=window_length,
-                                   horizon=horizon,
-                                   production_offset=target_lag,
-                                   weather_variables=weather_variables,
-                                   variable_definitions=variable_definitions,
-                                   include_lead_time=include_lead_time,
-                                   include_time_of_day=include_time_of_day,
-                                   use_cache=True,
-                                   one_hot_encode=one_hot_encode)
+                                   variables_file=variables_config_path,
+                                   dataset_config_file=dataset_config_path)
         site_id = site_dataset.get_id()
-        site_dir = experiment_dir / site_id
-        site_dir.mkdir()
+        nwp_model = site_dataset.get_nwp_model()
+        site_dir = experiment_dir / site_id / nwp_model / ml_model / timestamp()
+        site_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(variables_config_path, site_dir / 'variables_config.py')
+        shutil.copy(model_config_path, site_dir / 'model_config.py')
+        shutil.copy(dataset_config_path, site_dir / 'dataset_config.py')
+        shutil.copy(training_config_path, site_dir / 'training_config.py')
 
-        base_model = EnsembleModelWrapper
         metadata['site_dataset_path'] = site_dataset_path
+
+        training_config = load_module(training_config_path)
+        outer_folds = training_config.outer_folds
+        outer_xval_loops = training_config.outer_xval_loops
+        inner_folds = training_config.inner_folds
+        inner_xval_loops = training_config.inner_xval_loops
+        hp_search_iterations = training_config.hp_search_iterations
+        train_kwargs = training_config.train_kwargs
 
         for i, (test_dataset, train_dataset) in tqdm(enumerate(site_dataset.k_fold_split(outer_folds)),
                                                      total=outer_folds):
@@ -150,7 +174,11 @@ def train(*, site_files, experiment_dir, window_length, target_lag, horizon,
                     best_args, best_kwargs = hp_trainer.get_best_hyper_params()
                     model = base_model(*best_args, **best_kwargs)
             else:
-                model = base_model(*base_args, **base_kwargs)  # No HP tuning taking place
+                with HyperParameterTrainer(base_model=base_model,
+                                           base_args=base_args,
+                                           base_kwargs=base_kwargs) as hp_trainer:
+                    args, kwargs = hp_trainer.get_any_hyper_params()
+                    model = base_model(*args, **kwargs)  # No HP tuning taking place
             train_dataset = DatasetWrapper(train_dataset[:])
             test_dataset = DatasetWrapper(test_dataset[:])
             best_performance, best_model_path = mltrain.train.train(model=model,
