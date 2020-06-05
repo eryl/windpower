@@ -7,7 +7,7 @@ n_estimators = IntegerRangeHyperParameter(20, 300)
 learning_rate = GeometricHyperParameter(0.0001, 1)
 num_leaves = IntegerRangeHyperParameter(20, 256)
 max_depth = IntegerRangeHyperParameter(-1, 30)
-boosting_type = DiscreteHyperParameter(['gbdt', 'dart', 'goss', 'rf'])
+boosting_type = DiscreteHyperParameter(['gbdt', 'dart'])
 
 model = SklearnWrapper
 base_args = tuple()
