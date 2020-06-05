@@ -9,7 +9,6 @@ from windpower.train_ensemble import train
 
 def main():
     parser = argparse.ArgumentParser(description='Train random forrest on sites')
-    parser.add_argument('site_files', help="NetCDF files to use", nargs='+', type=Path)
     parser.add_argument('variables_config', help="Python module determining what variables to use, "
                                                "and how they should be encoded", type=Path)
     parser.add_argument('model_config',
@@ -23,6 +22,7 @@ def main():
                         type=Path)
     parser.add_argument('experiment_dir', help="Directory to output results to", type=Path)
 
+    parser.add_argument('site_files', help="NetCDF files to use", nargs='+', type=Path)
     args = parser.parse_args()
 
     train(site_files=args.site_files,
