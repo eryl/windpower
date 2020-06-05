@@ -116,12 +116,15 @@ def get_nwp_model(dataset, dataset_path):
     if 'nwp_model' in dataset.attrs:
         return dataset.attrs['nwp_model']
     else:
-        import re
-        pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc')
-        m = re.match(pattern, dataset_path.name)
-        if m is not None:
-            (model,) = m.groups()
-            return model
+        return get_nwp_model_from_path(dataset_path)
+
+def get_nwp_model_from_path(dataset_path):
+    import re
+    pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc')
+    m = re.match(pattern, dataset_path.name)
+    if m is not None:
+        (model,) = m.groups()
+        return model
 
 class SiteDataset(object):
     def __init__(self, *, dataset_path: Path,  variables_file, dataset_config_file,
