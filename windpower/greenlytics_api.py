@@ -200,5 +200,6 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         ds = xa.Dataset.from_dict(json.loads(response.text))
         ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
         ds['valid_time'] = ds['valid_time'].astype(np.int32)
+        ds['nwp_model'] = model
         ds.to_netcdf(file_name)
         request_start = request_end
