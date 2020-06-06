@@ -2,10 +2,9 @@ from lightgbm import LGBMRegressor
 from windpower.models import SklearnWrapper
 from mltrain.train import DiscreteHyperParameter, GeometricHyperParameter, IntegerRangeHyperParameter
 
-N_ESTIMATORS = [20, 50, 100, 200, 300]
-n_estimators = IntegerRangeHyperParameter(20, 300)
-learning_rate = GeometricHyperParameter(0.0001, 1)
-num_leaves = IntegerRangeHyperParameter(20, 256)
+n_estimators = IntegerRangeHyperParameter(160, 240)
+learning_rate = GeometricHyperParameter(0.1, 0.5)
+num_leaves = IntegerRangeHyperParameter(140, 512)
 max_depth = IntegerRangeHyperParameter(-1, 30)
 boosting_type = DiscreteHyperParameter(['gbdt', 'dart'])
 

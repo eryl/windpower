@@ -8,9 +8,10 @@ from mltrain.train import BaseModel, LowerIsBetterMetric, HigherIsBetterMetric
 
 
 class SklearnWrapper(BaseModel):
-    def __init__(self, *args, model, scaling=False, **kwargs):
+    def __init__(self, *args, model, clip_predictions=True, scaling=False, **kwargs):
         self.model = model(*args, **kwargs)
         self.scaling = scaling
+        self.clip_predictions = clip_predictions
         self.args = args
         self.kwargs = kwargs
 
@@ -29,6 +30,8 @@ class SklearnWrapper(BaseModel):
         if self.scaling:
             x = (x - self.x_mean) / self.x_std
         y_hats = self.model.predict(x)
+        if self.clip_prediction:
+            np.clip(y_hats, 0, 1)
 
         mse = sklearn.metrics.mean_squared_error(y, y_hats)
         rmse = np.sqrt(mse)
@@ -42,7 +45,9 @@ class SklearnWrapper(BaseModel):
                 'r_squared': r_squared}
 
     def get_metadata(self):
-        return dict(model=self.model.__class__.__name__, args=self.args, kwargs=self.kwargs)
+        return dict(model=self.model.__class__.__name__,
+                    scaling=self.scaling, clip_predictions=self.clip_predictions,
+                    args=self.args, kwargs=self.kwargs)
 
     def evaluation_metrics(self):
         mse_metric = LowerIsBetterMetric('mean_squared_error')
