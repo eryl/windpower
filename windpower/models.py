@@ -30,7 +30,7 @@ class SklearnWrapper(BaseModel):
         if self.scaling:
             x = (x - self.x_mean) / self.x_std
         y_hats = self.model.predict(x)
-        if self.clip_prediction:
+        if self.clip_predictions:
             np.clip(y_hats, 0, 1)
 
         mse = sklearn.metrics.mean_squared_error(y, y_hats)
