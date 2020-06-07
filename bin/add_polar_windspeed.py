@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from tqdm import tqdm
 #import multiprocessing
+import functools
 import multiprocessing.dummy as multiprocessing
 
 from windpower.dataset import get_nwp_model
@@ -11,14 +12,16 @@ from windpower.dataset import get_nwp_model
 def main():
     parser = argparse.ArgumentParser(description="Add polar windspeeds for datasets")
     parser.add_argument('directories', nargs='+', type=Path)
+    parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--overwrite', action='store_true')
     args = parser.parse_args()
     files = []
     for d in args.directories:
         files.extend(d.glob('**/*.nc'))
 
+    f = functools.partial(process_dataset, output_dir=args.output_dir, overwrite=args.overwrite)
     with multiprocessing.Pool() as p:
-        r = list(tqdm(p.imap_unordered(process_dataset, files), total=len(files)))
+        r = list(tqdm(p.imap_unordered(f, files), total=len(files)))
 
 
 def process_dataset(f, output_dir=None, overwrite=False):
