@@ -53,13 +53,18 @@ def main():
         site_capacity = capacities[site].to_numpy()
         normalized_site_production = (site_production / site_capacity).clip(0, 1)
         normalized_site_production_dataarray = xr.DataArray(normalized_site_production)
+
         site_dataset = xr.open_dataset(weather_file)
         site_dataset['site_production'] = normalized_site_production_dataarray
         site_dataset.attrs['site_id'] = site
         site_dataset.attrs['capacity'] = site_capacity[0]
         site_dataset.attrs['latitude'] = lat
         site_dataset.attrs['longitude'] = lon
-        site_dataset = setup_xref(site_dataset)
+        try:
+            site_dataset = setup_xref(site_dataset)
+        except ValueError:
+            print(f"Can't make site dataset for {site} with weather file {weather_file}, the date ranges do not overlap")
+            continue
         site_data_path = args.output_dir / '{}_{}.nc'.format(site, weather_model)
         site_dataset.to_netcdf(site_data_path)
     with open('/tmp/bad_dwd_dates.txt', 'w') as fp:
@@ -79,6 +84,8 @@ def setup_xref(dataset):
 
     start_time = max(production_times.min(), forecast_times.min())
     end_time = min(production_times.max(), forecast_times.max())
+    if end_time < start_time:
+        raise ValueError("There is no overlap between production time and reference time, can't create dataset")
 
     dataset = dataset.sel(reference_time=slice(start_time, end_time), production_time=slice(start_time, end_time))
     forecast_times = dataset['reference_time'].values
