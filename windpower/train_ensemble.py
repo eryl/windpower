@@ -112,7 +112,7 @@ def train(*, site_files,
                                    dataset_config_file=dataset_config_path)
         site_id = site_dataset.get_id()
         nwp_model = site_dataset.get_nwp_model()
-        site_dir = experiment_dir / site_id / nwp_model / ml_model / timestamp()
+        site_dir = experiment_dir / ml_model / site_id / nwp_model / timestamp()
         site_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(variables_config_path, site_dir / 'variables_config.py')
         shutil.copy(model_config_path, site_dir / 'model_config.py')
