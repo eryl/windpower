@@ -1,17 +1,23 @@
 import pickle
 import importlib
+import time
 
 import numpy as np
 import sklearn.metrics
+from sklearn.decomposition import PCA
 
 from mltrain.train import BaseModel, LowerIsBetterMetric, HigherIsBetterMetric
 
 
 class SklearnWrapper(BaseModel):
-    def __init__(self, *args, model, clip_predictions=True, scaling=False, **kwargs):
+    def __init__(self, *args, model, clip_predictions=True, scaling=False, decorrelate=False, **kwargs):
         self.model = model(*args, **kwargs)
         self.scaling = scaling
         self.clip_predictions = clip_predictions
+        self.decorrelate = decorrelate
+        if self.decorrelate and not self.scaling:
+            print("Setting scaling=True, since decorrelate=True")
+            self.scaling = True
         self.args = args
         self.kwargs = kwargs
 
@@ -22,6 +28,12 @@ class SklearnWrapper(BaseModel):
             self.x_mean = np.mean(x, axis=0)
             self.x_std = np.std(x, axis=0)
             x = (x - self.x_mean)/self.x_std
+        if self.decorrelate:
+            print("Fitting PCA")
+            t0 = time.time()
+            self.pca = PCA()
+            x = self.pca.fit_transform(x)
+            print(f"PCA.fit_transform took {time.time() - t0}s")
         self.model.fit(x, y)
 
     def evaluate(self, batch):
@@ -29,6 +41,8 @@ class SklearnWrapper(BaseModel):
         y = batch['y']
         if self.scaling:
             x = (x - self.x_mean) / self.x_std
+        if self.decorrelate:
+            x = self.pca.transform(x)
         y_hats = self.model.predict(x)
         if self.clip_predictions:
             np.clip(y_hats, 0, 1)
@@ -47,6 +61,7 @@ class SklearnWrapper(BaseModel):
     def get_metadata(self):
         return dict(model=self.model.__class__.__name__,
                     scaling=self.scaling, clip_predictions=self.clip_predictions,
+                    decorrelate=self.decorrelate,
                     args=self.args, kwargs=self.kwargs)
 
     def evaluation_metrics(self):
