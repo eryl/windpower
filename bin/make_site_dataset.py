@@ -10,6 +10,8 @@ import xarray as xr
 from pathlib import Path
 from tqdm import tqdm
 
+from windpower.greenlytics_api import parse_filename
+
 bad_nwp_dates = defaultdict(Counter)
 
 def main():
@@ -28,13 +30,10 @@ def main():
     with open(args.sites_file) as fp:
         sites = [site.strip() for site in fp if site.strip()]
 
-    pattern = re.compile(r'(DWD_ICON-EU|NCEP_GFS)_(\d*\.\d*),(\d*\.\d*).*\.nc')
     weather_coordinate_files = dict()
     for f in args.weather_dataset_dir.glob('*.nc'):
-        m = re.match(pattern, f.name)
-        if m is not None:
-            model, lat, lon = m.groups()
-            weather_coordinate_files[(float(lat), float(lon))] = (f, model)
+        nwp_params = parse_filename(f)
+        weather_coordinate_files[(nwp_params['latitude'], nwp_params['longitude'])] = (f, nwp_params['model'])
 
     production_data = pd.read_csv(args.production_data, sep=',', parse_dates=True, index_col=0, header=0, skiprows=[1])
     production_data.index.name = 'production_time'
