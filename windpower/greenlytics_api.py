@@ -1,3 +1,4 @@
+import re
 import datetime
 import time
 import json
@@ -200,6 +201,32 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         ds = xa.Dataset.from_dict(json.loads(response.text))
         ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
         ds['valid_time'] = ds['valid_time'].astype(np.int32)
-        ds['nwp_model'] = model
+        ds.attrs['nwp_model'] = model
         ds.to_netcdf(file_name)
         request_start = request_end
+
+
+def parse_filename(f):
+    """Return different parameters from a filename of a downloaded file
+    :param f: Filename to parse
+    :return A dictionary with the keys 'model', 'latitude', 'longitude'. If the file has a data range, the keys
+            'start_date', 'end_date' are also present.
+    """
+    coord_fmt = r"\d+\.\d+"
+    model_fmt = r"DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS"
+    date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
+    date_pattern = r"({})_({}),({})_({})--({}).nc".format(model_fmt, coord_fmt, coord_fmt, date_fmt, date_fmt)
+    nondate_pattern = r"({})_({}),({}).nc".format(model_fmt, coord_fmt, coord_fmt)
+    m = re.match(date_pattern, f.name)
+    if m is not None:
+        model, latitude, longitude, start_date, end_date = m.groups()
+        start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d %H')
+        end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d %H')
+        return dict(model=model, latitude=float(latitude), longitude=float(longitude), start_date=start_date,
+                    end_date=end_date)
+    else:
+        m = re.match(nondate_pattern, f.name)
+        if m is not None:
+            model, latitude, longitude = m.groups()
+            return dict(model=model, latitude=float(latitude), longitude=float(longitude))
+    raise ValueError(f"Not a valid NWP dataset file name: {f}")
