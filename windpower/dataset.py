@@ -112,19 +112,25 @@ def split_datetimes(datetimes, splits, padding):
     fold_lengths = [end - start for start, end in fold_times]
     return fold_times
 
+
 def get_nwp_model(dataset, dataset_path):
     if 'nwp_model' in dataset.attrs:
         return dataset.attrs['nwp_model']
     else:
         return get_nwp_model_from_path(dataset_path)
 
+
 def get_nwp_model_from_path(dataset_path):
     import re
-    pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc')
+    #pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
+    pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
     m = re.match(pattern, dataset_path.name)
     if m is not None:
         (model,) = m.groups()
         return model
+    else:
+        raise ValueError(f"Not a dataset path: {dataset_path}")
+
 
 class SiteDataset(object):
     def __init__(self, *, dataset_path: Path,  variables_file, dataset_config_file,
