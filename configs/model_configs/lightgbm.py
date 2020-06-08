@@ -4,7 +4,7 @@ from mltrain.train import DiscreteHyperParameter, GeometricHyperParameter, Integ
 
 n_estimators = 200
 learning_rate = 0.3
-num_leaves = 200
+num_leaves = 240
 max_depth = 5
 boosting_type = 'dart'
 

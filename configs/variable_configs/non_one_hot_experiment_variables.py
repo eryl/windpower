@@ -1,7 +1,7 @@
 import numpy as np
 from windpower.dataset import Variable, CategoricalVariable, DiscretizedVariableEvenBins
 
-variable_definitions = {
+VARIABLE_DEFINITIONS = {
     'DWD_ICON-EU': {'T': Variable('T'),
                     'U': Variable('U'),
                     'V': Variable('V'),
@@ -9,6 +9,10 @@ variable_definitions = {
                                                        one_hot_encode=False),
                     'r': Variable('r'),
                     'site_production': Variable('site_production'),
+                    'lead_time': Variable('lead_time'),
+                    'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
+                                                       mapping={i: i for i in range(24)},
+                                                       one_hot_encode=False),
                     },
     "FMI_HIRLAM": {
         "Temperature": Variable("Temperature"),
@@ -18,6 +22,10 @@ variable_definitions = {
                                            one_hot_encode=False),
         'r': Variable('r'),
         'site_production': Variable('site_production'),
+        'lead_time': Variable('lead_time'),
+        'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
+                                           mapping={i: i for i in range(24)},
+                                           one_hot_encode=False),
     },
     "NCEP_GFS": {'WindUMS_Height': Variable('WindUMS_Height'),
                  'WindVMS_Height': Variable('WindVMS_Height'),
@@ -28,6 +36,10 @@ variable_definitions = {
                                                     one_hot_encode=False),
                  'r': Variable('r'),
                  'site_production': Variable('site_production'),
+                 'lead_time': Variable('lead_time'),
+                 'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
+                                                    mapping={i: i for i in range(24)},
+                                                    one_hot_encode=False),
                  },
     "MetNo_MEPS": {
         "x_wind_10m": Variable("x_wind_10m"),
@@ -45,6 +57,10 @@ variable_definitions = {
                                            one_hot_encode=False),
         'r_10m': Variable('r_10m'),
         'site_production': Variable('site_production'),
+        'lead_time': Variable('lead_time'),
+        'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
+                                           mapping={i: i for i in range(24)},
+                                           one_hot_encode=False),
     }
 }
 
