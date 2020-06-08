@@ -147,10 +147,10 @@ def train(*, site_files,
             train_reference_time = train_dataset.get_reference_times()
             np.savez(fold_dir / 'fold_reference_times.npz', train=train_reference_time, test=test_reference_times)
 
-            if inner_folds > 1:
-                with HyperParameterTrainer(base_model=base_model,
-                                           base_args=base_args,
-                                           base_kwargs=base_kwargs) as hp_trainer:
+            with HyperParameterTrainer(base_model=base_model,
+                                       base_args=base_args,
+                                       base_kwargs=base_kwargs) as hp_trainer:
+                if inner_folds > 1:
                     for j, (validation_dataset, fit_dataset) in tqdm(
                             enumerate(train_dataset.k_fold_split(inner_folds)),
                             total=inner_folds):
@@ -171,15 +171,13 @@ def train(*, site_files,
                                          evaluation_dataset=validation_dataset,
                                          output_dir=output_dir,
                                          **train_kwargs)
-
-                    best_args, best_kwargs = hp_trainer.get_best_hyper_params()
-                    model = base_model(*best_args, **best_kwargs)
-            else:
-                with HyperParameterTrainer(base_model=base_model,
-                                           base_args=base_args,
-                                           base_kwargs=base_kwargs) as hp_trainer:
+                        args, kwargs = hp_trainer.get_best_hyper_params()
+                        model = base_model(*args, **kwargs)
+                else:
+                    # With no inner loop, we just pick any hyper parameter
                     args, kwargs = hp_trainer.get_any_hyper_params()
                     model = base_model(*args, **kwargs)  # No HP tuning taking place
+
             train_dataset = DatasetWrapper(train_dataset[:])
             test_dataset = DatasetWrapper(test_dataset[:])
             best_performance, best_model_path = mltrain.train.train(model=model,
