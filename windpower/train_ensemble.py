@@ -2,7 +2,7 @@ import json
 import shutil
 from tqdm import tqdm
 from windpower.utils import timestamp, load_module
-from windpower.dataset import SiteDataset, read_variables_file
+from windpower.dataset import SiteDataset
 import windpower.models
 
 import argparse
@@ -104,12 +104,16 @@ def train(*, site_files,
     site_files = cleaned_site_files
 
     base_model, base_args, base_kwargs = windpower.models.get_model_config(model_config_path)
+
     ml_model = model_config_path.with_suffix('').name
 
     for site_dataset_path in tqdm(sorted(site_files)):
+        dataset_config = windpower.dataset.get_dataset_config(dataset_config_path)
+        variables_config = windpower.dataset.get_variables_config(variables_config_path)
         site_dataset = SiteDataset(dataset_path=site_dataset_path,
-                                   variables_file=variables_config_path,
-                                   dataset_config_file=dataset_config_path)
+                                   dataset_config=dataset_config,
+                                   variables_config=variables_config)
+
         site_id = site_dataset.get_id()
         nwp_model = site_dataset.get_nwp_model()
         site_dir = experiment_dir / ml_model / site_id / nwp_model / timestamp()

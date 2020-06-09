@@ -73,16 +73,33 @@ class DiscretizedVariableEvenBins(CategoricalVariable):
         # find the correct edges and take the mean between them
         return (bins+0.5)*self.step_per_bin + self.start
 
+@dataclass
+class VariableDefinition(object):
+    name: str
+    type: str
+    kwargs: Dict[str, Any]
 
-def read_variables_file(path):
-    """
-    Read and return the variable definitions, weather and production variables to use. The file should be a python
-    module containing the three variables VARIABLE_DEFINITIONS, WEATHER_VARIABLES and PRODUCTION_VARIABLE. These in turn
-    should be dictionaries with the different NWP models as keys, and the corresponding configurations as values.
-    :param path: Path to a python file containing the variables
-    :return: A truplet of (variable definition dict, weather variables, production variable)
-    """
+@dataclass
+class VariableConfig(object):
+    production_variable: Dict[str, str]
+    variable_definitions: Dict[str, Dict[str, Variable]]
+    weather_variables: Dict[str, List[str]]
 
+@dataclass
+class DatasetConfig(object):
+    horizon: int
+    window_length: int
+    production_offset: int
+    include_variable_index: bool
+
+
+def get_dataset_config(dataset_config_path):
+    dataset_module = load_module(dataset_config_path)
+    return dataset_module.dataset_config
+
+def get_variables_config(variables_config_path):
+    variables_module = load_module(variables_config_path)
+    return variables_module.variables_config
 
 def split_datetimes(datetimes, splits, padding):
     datetime_per_fold = len(datetimes) // splits
@@ -139,56 +156,30 @@ def get_nwp_model_from_path(dataset_path):
     else:
         raise ValueError(f"Not a dataset path: {dataset_path}")
 
-@dataclass
-class VariableDefinition(object):
-    name: str
-    type: str
-    kwargs: Dict[str, Any]
 
-@dataclass
-class VariableConfig(object):
-    production_variable: Dict[str, str]
-    variable_definitions: Dict[str, Dict[str, Variable]]
-    weather_variables: Dict[str, List[str]]
-
-@dataclass
-class DatasetConfig(object):
-    horizon: int
-    window_length: int
-    production_offset: int
-    include_variable_index: bool
-    use_cache: bool
-    variable_config: VariableConfig
-
-
-class SiteDataset(object):
+class SiteDatasetOld(object):
     def __init__(self, *,
                  dataset_path: Path,
                  dataset_config: DatasetConfig,
                  dataset=None,
                  reference_time=None):
+        self.dataset_path = dataset_path
         if dataset is None:
             dataset = xr.open_dataset(dataset_path)
-        self.nwp_model = get_nwp_model(dataset, dataset_path)
-        if reference_time is not None:
-            dataset = dataset.sel(reference_time=reference_time)
-        self.dataset_path = dataset_path
         self.dataset = dataset.squeeze()  # For the datasets we have, latitude and longitude is only a single element. This unsqueeze removes those dimensions
-        #if 'latitude' in self.dataset and len(self.dataset['latitude']) == 1:
-        #    self.dataset = self.dataset.isel(latitude=0)
-        #if 'longitude' in self.dataset and len(self.dataset['longitude']) == 1:
-        #    self.dataset = self.dataset.isel(longitude=0)
+        self.nwp_model = get_nwp_model(dataset, dataset_path)
         self.reference_time = reference_time
         self.dataset_config = dataset_config
         variables_config = dataset_config.variable_config
         self.weather_variables = variables_config.weather_variables[self.nwp_model]
         self.variable_definitions = variables_config.variable_definitions[self.nwp_model]
-        self.production_variable = variables_config.weather_variables[self.nwp_model]
+        self.production_variable = variables_config.production_variable[self.nwp_model]
         self.horizon = dataset_config.horizon
         self.window_length = dataset_config.window_length
         self.production_offset = dataset_config.production_offset
         self.include_variable_index = dataset_config.include_variable_index
         self.use_cache = dataset_config.use_cache
+        self.site_id = self.dataset.attrs['site_id']
 
         n_valid_times = len(self.dataset['valid_time'])
         if self.horizon is None:
@@ -199,8 +190,8 @@ class SiteDataset(object):
         else:
             self.dataset = self.dataset.isel(valid_time=slice(0, self.horizon))
 
-        self.site_id = self.dataset.attrs['site_id']
-        self.setup_xref()
+        self.setup_reference_time(reference_time)
+        #self.setup_xref()
         if self.use_cache:
             self.setup_cache()
 
@@ -213,6 +204,35 @@ class SiteDataset(object):
 
     def get_variable_definition(self):
         return self.variable_definitions
+
+    def setup_reference_time(self, reference_time):
+        if reference_time is not None:
+            self.dataset = self.dataset.sel(reference_time=reference_time)
+
+        # Filter the reference times so what all of them can be used. In particular, compare reference times to
+        # production times and see which ones would be missing production data
+        reference_times = self.dataset['reference_time'].values
+        production_times = self.dataset['production_time'].values
+
+        left_padding = self.production_offset  # The production offset is 0-indexed, so to the number of hours left of
+        # the prediction hour is the same as the offset
+        right_padding = (self.window_length - self.production_offset) - 1  # The production offset is 0-indexed, so we
+        # need to subtract one from the difference
+        left_padding_dt = np.timedelta64(left_padding, 'h')
+        right_padding_dt = np.timedelta64(right_padding, 'h')
+        # We can actually handle production times "left_padding" hours before the first production time
+        # due to the time lag
+        start_time = max(min(reference_times), min(production_times) - left_padding_dt)
+
+        # We can handle production time "right_padding" number of hours after the last production  time. We need a
+        # full horizon worth of production data though. Forecasts are defined to be full horizon.
+        end_time = min(max(reference_times),
+                       # The actual final time of a forecast is given by the issue time plus horizon
+                       max(production_times) - (np.timedelta64(self.horizon, 'h') + right_padding_dt))
+        selected_indices = np.logical_and(start_time <= reference_times, reference_times < end_time)
+        filtered_reference_time = reference_times[selected_indices]
+        self.dataset = self.dataset.sel(reference_time=filtered_reference_time)
+
 
     def get_nwp_model(self):
         return self.nwp_model
@@ -237,7 +257,7 @@ class SiteDataset(object):
         # full horizon worth of production data though. Forecasts are defined to be full horizon.
         end_time = min(max(forecast_times) + np.timedelta64(self.horizon, 'h'),
                        # The actual final time of a forecast is given by the issue time plus horizon
-                       max(production_times) + right_padding_dt - np.timedelta64(self.horizon, 'h'))
+                       max(production_times) - (np.timedelta64(self.horizon, 'h') + right_padding_dt))
 
         # Filter out the offsets which are not covered by the dataset (this could be due to the reference time of dataset
         # having been indexed or the production times not being available
@@ -393,19 +413,142 @@ class SiteDataset(object):
             remainder = type(self)(dataset=self.dataset, reference_time=remainder_times, **kwargs)
             yield fold, remainder
 
-class FastSiteDataset(SiteDataset):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.strided_windows = dict()
+
+class WindowedDataset(object):
+    def __init__(self, dataset: xr.Dataset, variables_config, window_config: DatasetConfig, nwp_model):
+        self.nwp_model = nwp_model
+        self.weather_variables = variables_config.weather_variables[self.nwp_model]
+        self.variable_definitions = variables_config.variable_definitions[self.nwp_model]
+        self.production_variable = variables_config.production_variable[self.nwp_model]
+        self.horizon = window_config.horizon
+        self.window_length = window_config.window_length
+        self.production_offset = window_config.production_offset
+        self.include_variable_index = window_config.include_variable_index
+
+    def __getitem__(self, item):
+        ...
+
+class SiteDataset(object):
+    def __init__(self, *,
+                 dataset_path: Path,
+                 dataset_config: DatasetConfig,
+                 variables_config: VariableConfig,
+                 dataset=None,
+                 reference_time=None):
+        self.dataset_path = dataset_path
+        if dataset is None:
+            dataset = xr.open_dataset(dataset_path)
+        self.dataset = dataset.squeeze()  # For the datasets we have, latitude and longitude is only a single element. This unsqueeze removes those dimensions
+        self.nwp_model = get_nwp_model(dataset, dataset_path)
+        self.reference_time = reference_time
+        self.variables_config = variables_config
+        self.dataset_config = dataset_config
+        self.weather_variables = variables_config.weather_variables[self.nwp_model]
+        self.variable_definitions = variables_config.variable_definitions[self.nwp_model]
+        self.production_variable = variables_config.production_variable[self.nwp_model]
+        self.horizon = dataset_config.horizon
+        self.window_length = dataset_config.window_length
+        self.production_offset = dataset_config.production_offset
+        self.include_variable_index = dataset_config.include_variable_index
+        self.site_id = self.dataset.attrs['site_id']
+
+        n_valid_times = len(self.dataset['valid_time'])
+        if self.horizon is None:
+            self.horizon = n_valid_times
+        elif n_valid_times < self.horizon:
+            print("Horizon is longer than valid_time, reducing horizon to {}".format(n_valid_times))
+            self.horizon = n_valid_times
+        else:
+            self.dataset = self.dataset.isel(valid_time=slice(0, self.horizon))
+
+        self.setup_reference_time(reference_time)
         self.make_memdataset()
 
-    def read_dataset_config(self, dataset_config_file):
-        super().read_dataset_config(dataset_config_file)
-        self.use_cache = False
+    def get_variable_definition(self):
+        return self.variable_definitions
+
+    def setup_reference_time(self, reference_time):
+        if reference_time is not None:
+            self.dataset = self.dataset.sel(reference_time=reference_time)
+
+        # Filter the reference times so what all of them can be used. In particular, compare reference times to
+        # production times and see which ones would be missing production data
+        reference_times = self.dataset['reference_time'].values
+        production_times = self.dataset['production_time'].values
+
+        left_padding = self.production_offset  # The production offset is 0-indexed, so to the number of hours left of
+        # the prediction hour is the same as the offset
+        right_padding = (self.window_length - self.production_offset) - 1  # The production offset is 0-indexed, so we
+        # need to subtract one from the difference
+        left_padding_dt = np.timedelta64(left_padding, 'h')
+        right_padding_dt = np.timedelta64(right_padding, 'h')
+        # We can actually handle production times "left_padding" hours before the first production time
+        # due to the time lag
+        start_time = max(min(reference_times), min(production_times) - left_padding_dt)
+
+        # We can handle production time "right_padding" number of hours after the last production  time. We need a
+        # full horizon worth of production data though. Forecasts are defined to be full horizon.
+        end_time = min(max(reference_times),
+                       # The actual final time of a forecast is given by the issue time plus horizon
+                       max(production_times) - (np.timedelta64(self.horizon, 'h') + right_padding_dt))
+        selected_indices = np.logical_and(start_time <= reference_times, reference_times < end_time)
+        filtered_reference_time = reference_times[selected_indices]
+        self.dataset = self.dataset.sel(reference_time=filtered_reference_time)
+
+
+    def get_nwp_model(self):
+        return self.nwp_model
+
+    def get_id(self):
+        return self.site_id
+
+    def get_reference_times(self):
+        return self.dataset['reference_time'].values
+
+    def __len__(self):
+        return len(self.windows)
+
+    def k_fold_split(self, k, padding=12):
+        """
+        Create a generator object which will produce k-fold splits of the dataset. Since this is assumed to be a
+        time-series dataset, folds will consist of consecutive windows which has at least *padding* hours of no overlap
+        :param k:
+        :param padding: The folds will have this amounts of hours of no overlap
+        :return: An iterator over k pairs of datasets, the first is the left out fold, the second is the remainder
+        """
+        # We do things simply, just divide the forecasts into k folds and remove enough of them in the ends so that we
+        # satisfy the padding condition
+
+        kwargs = dict(dataset_path=self.dataset_path,
+                      dataset_config=self.dataset_config,
+                      variables_config=self.variables_config)
+
+        forecast_times = self.dataset['reference_time'].values
+        fold_intervals = split_datetimes(forecast_times, k, padding+self.horizon)
+
+        for i in range(len(fold_intervals)):
+            fold_start, fold_end = fold_intervals[i]
+            fold_times = forecast_times[fold_start:fold_end]
+            remainder_folds = []
+            # we should
+            if i > 0:
+                previous_fold_start, previous_fold_end = fold_intervals[i-1]
+                remainder_folds.append(forecast_times[:previous_fold_end+1])
+            if i < len(fold_intervals) - 1:
+                next_fold_start, next_fold_end = fold_intervals[i+1]
+                remainder_folds.append(forecast_times[next_fold_start:])
+
+            remainder_times = np.concatenate(remainder_folds)
+            fold = type(self)(dataset=self.dataset, reference_time=fold_times, **kwargs)
+            remainder = type(self)(dataset=self.dataset, reference_time=remainder_times, **kwargs)
+            yield fold, remainder
+
 
     def make_memdataset(self):
         n_ref_times = len(self.dataset['reference_time'])
         n_valid_times = len(self.dataset['valid_time'])
+        self.n_windows_per_forecast = (self.horizon - self.window_length) + 1
+
         var_arrays = []
         var_indices = dict()
         var_start = 0
@@ -440,7 +583,7 @@ class FastSiteDataset(SiteDataset):
         self.feature_vectors = strided.reshape(n_ref_times, self.n_windows_per_forecast, -1)
 
         # We only add the lead time of the first hour of a window (since the other are perfectly linearly dependent,
-        # it would harm linear models
+        # it would harm linear models)
         if 'lead_time' in self.weather_variables:
             var_values = np.tile(np.arange(self.n_windows_per_forecast), (n_ref_times, 1))
             var_def = self.variable_definitions['lead_time']
@@ -466,16 +609,32 @@ class FastSiteDataset(SiteDataset):
             var_indices['time_of_day'] = ((var_start, var_start + 1))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
+        self.windows = self.feature_vectors.reshape(n_ref_times*self.n_windows_per_forecast, -1)
+        self.variable_index = var_indices
+        start_production_indices = self.dataset['production_index'].values
+        # Each production index refers to the start of the forecast. To get all production for the forecast, we add
+        # the horizon plus target lag
+        production_indices = start_production_indices.reshape(-1, 1) + (np.arange(self.n_windows_per_forecast) + self.production_offset).reshape(1, -1)
+        production_values = self.dataset[self.production_variable].isel(production_time=production_indices.flatten()).values
 
+        var_def = self.variable_definitions[self.production_variable]
+        encoded_targets = var_def.encode(production_values)
+        self.targets = encoded_targets
 
+    def __getitem__(self, item):
+        data = dict(x=self.windows[item],
+                    y=self.targets[item])
+        if self.include_variable_index:
+            data['variable_index'] = self.variable_index
+        return data
 
 
 class MultiSiteDataset(object):
     def __init__(self, datasets, *, window_length, production_offset, horizon=None,
                  weather_variables=None, production_variable='site_production'):
-        self.datasets = [SiteDataset(dataset_path=d, window_length=window_length, production_offset=production_offset,
-                                     horizon=horizon, weather_variables=weather_variables,
-                                     production_variable=production_variable) for d in datasets]
+        self.datasets = [SiteDatasetOld(dataset_path=d, window_length=window_length, production_offset=production_offset,
+                                        horizon=horizon, weather_variables=weather_variables,
+                                        production_variable=production_variable) for d in datasets]
         self.window_length = window_length
         self.horizon = horizon
         self.production_offset = production_offset
@@ -487,12 +646,12 @@ class MultiSiteDataset(object):
         ...
 
 
-DEFAULT_VARIABLE_CONFIG = VariableConfig({
+DEFAULT_VARIABLE_CONFIG = VariableConfig(production_variable={
     'DWD_ICON-EU':  'site_production',
     "FMI_HIRLAM": 'site_production',
     "NCEP_GFS":  'site_production',
     "MetNo_MEPS": 'site_production',
-}, {
+}, variable_definitions={
     'DWD_ICON-EU': {'T': Variable('T'),
                     'U': Variable('U'),
                     'V': Variable('V'),
@@ -555,7 +714,7 @@ DEFAULT_VARIABLE_CONFIG = VariableConfig({
         'site_production': Variable('site_production'),
     },
 },
-{
+weather_variables={
     'DWD_ICON-EU':  ['T', 'U', 'V', 'phi', 'r', 'lead_time', 'time_of_day'],
     "FMI_HIRLAM": ["Temperature", "WindUMS", "WindVMS", 'phi', 'r', 'lead_time', 'time_of_day'],
     "NCEP_GFS": ['WindUMS_Height', 'WindVMS_Height', 'Temperature_Height', 'phi', 'r', 'lead_time', 'time_of_day'],
@@ -583,7 +742,7 @@ def main():
                                   use_cache=False,
                                   variable_config=DEFAULT_VARIABLE_CONFIG)
 
-    site_dataset = FastSiteDataset(dataset_path=args.site_datafile, dataset_config=dataset_config)
+    site_dataset = SiteDataset(dataset_path=args.site_datafile, dataset_config=dataset_config)
     for i, (fold, remainder) in enumerate(site_dataset.k_fold_split(10)):
         for j, (inner_fold, inner_remainder) in enumerate(remainder.k_fold_split(10)):
             for b in inner_fold:
@@ -636,3 +795,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
