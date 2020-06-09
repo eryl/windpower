@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, Counter
 import hashlib
 import xarray as xr
 from pathlib import Path
@@ -7,8 +7,14 @@ from tqdm import tqdm, trange
 from windpower.utils import load_module, sliding_window
 from dataclasses import dataclass
 from typing import List, Dict, Any
+from enum import Enum
+
+class VariableType(Enum):
+    continuous = 1
+    discrete = 2
 
 class Variable(object):
+    type = VariableType.continuous
     def __init__(self, name):
         self.name = name
 
@@ -20,6 +26,7 @@ class Variable(object):
 
 
 class CategoricalVariable(Variable):
+    type = VariableType.discrete
     def __init__(self, name, levels, mapping=None, one_hot_encode=False):
         super().__init__(name)
         self.levels = levels
@@ -90,7 +97,7 @@ class DatasetConfig(object):
     horizon: int
     window_length: int
     production_offset: int
-    include_variable_index: bool
+    include_variable_info: bool
 
 
 def get_dataset_config(dataset_config_path):
@@ -192,7 +199,7 @@ class SiteDataset(object):
         self.horizon = dataset_config.horizon
         self.window_length = dataset_config.window_length
         self.production_offset = dataset_config.production_offset
-        self.include_variable_index = dataset_config.include_variable_index
+        self.include_variable_info = dataset_config.include_variable_info
         self.site_id = self.dataset.attrs['site_id']
 
         n_valid_times = len(self.dataset['valid_time'])
@@ -290,7 +297,7 @@ class SiteDataset(object):
         self.n_windows_per_forecast = (self.horizon - self.window_length) + 1
 
         var_arrays = []
-        var_indices = dict()
+        var_info = dict()
         var_start = 0
         var_end = 0
         for var in self.weather_variables:
@@ -300,14 +307,14 @@ class SiteDataset(object):
             var_values = self.dataset[var].values  # Pick out the numpy array values
             if not (var_values.shape[0] == n_ref_times and var_values.shape[1] == n_valid_times):
                 raise ValueError(f"Variable {var} has mismatching shape: {var_values.shape}")
-            var_definition = self.variable_definitions[var]
-            encoded_values = var_definition.encode(var_values)
+            var_def = self.variable_definitions[var]
+            encoded_values = var_def.encode(var_values)
             var_values = encoded_values.reshape(n_ref_times, n_valid_times, -1)
             var_arrays.append(var_values)
             var_length = var_values.shape[-1]
             # Since each variable is repeated window_length number of times, we set the var_index to this value here
             var_end += var_length*self.window_length
-            var_indices[var] = ((var_start, var_end))
+            var_info[var] = ((var_start, var_end, var_def.type))
             var_start = var_end
         # We should now have an array where the first dimension is the number of forecasts, equal to the number of
         # reference times in this array. The second dimension should be valid-time, the number of hours in this forecast.
@@ -332,7 +339,7 @@ class SiteDataset(object):
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, -1)
             var_length = encoded_values.shape[-1]
             var_end += var_length * self.window_length
-            var_indices['lead_time'] = ((var_start, var_start+1))
+            var_info['lead_time'] = ((var_start, var_start+1, var_def.type))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         if 'time_of_day' in self.weather_variables:
@@ -346,11 +353,11 @@ class SiteDataset(object):
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, - 1)
             var_length = encoded_values.shape[-1]
             var_end += var_length * self.window_length
-            var_indices['time_of_day'] = ((var_start, var_start + 1))
+            var_info['time_of_day'] = ((var_start, var_start + 1, var_def.type))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         self.windows = self.feature_vectors.reshape(n_ref_times*self.n_windows_per_forecast, -1)
-        self.variable_index = var_indices
+        self.variable_info = var_info
         start_production_indices = self.dataset['production_index'].values
         # Each production index refers to the start of the forecast. To get all production for the forecast, we add
         # the horizon plus target lag
@@ -366,8 +373,8 @@ class SiteDataset(object):
             self.make_memdataset()
         data = dict(x=self.windows[item],
                     y=self.targets[item])
-        if self.include_variable_index:
-            data['variable_index'] = self.variable_index
+        if self.include_variable_info:
+            data['variable_info'] = self.variable_info
         return data
 
 
@@ -480,59 +487,27 @@ def main():
     dataset_config = DatasetConfig(horizon=30,
                                   window_length=7,
                                   production_offset=3,
-                                  include_variable_index=True,
-                                  use_cache=False,
-                                  variable_config=DEFAULT_VARIABLE_CONFIG)
+                                  include_variable_info=True,
+                                  )
 
-    site_dataset = SiteDataset(dataset_path=args.site_datafile, dataset_config=dataset_config)
+    site_dataset = SiteDataset(dataset_path=args.site_datafile,
+                               dataset_config=dataset_config,
+                               variables_config=DEFAULT_VARIABLE_CONFIG)
+    zero_std_vars = Counter()
     for i, (fold, remainder) in enumerate(site_dataset.k_fold_split(10)):
         for j, (inner_fold, inner_remainder) in enumerate(remainder.k_fold_split(10)):
-            for b in inner_fold:
-                x = b['x']
-                variable_index = b['variable_index']
-                time_of_day_index = variable_index['time_of_day']
-                time_of_day_slice = slice(*time_of_day_index)
-                print('time of day', x[time_of_day_slice])
-                lead_time_index = variable_index['lead_time']
-                lead_time_slice = slice(*lead_time_index)
-                print('lead_time:', x[lead_time_slice])
-    n = len(site_dataset)
+            data = inner_fold[:]
+            x = data['x']
+            std = np.std(x, axis=0)
+            zero_std_i, = np.where(std == 0)
+            variable_index = data['variable_info']
+            for i in zero_std_i:
+                for var, (start, end, var_type) in variable_index.items():
+                    if start <= i < end:
+                        zero_std_vars[var] += 1
+    print(zero_std_vars)
 
-    t0 = time.time()
-    data = site_dataset[0]
-    x_tot = data['x']
-    y_tot = data['y']
 
-    for i in trange(1, n):
-        data = site_dataset[i]
-        xs = data['x']
-        y = data['y']
-        x_tot += xs
-        y_tot += y
-
-    x_mean = x_tot/n
-    y_mean = y_tot/n
-
-    dt = time.time() - t0
-    print("Means: {}, {}. Time: {}".format(x_mean, y_mean, dt))
-
-    array_site_dataset = np.load('/tmp/windows.npz')
-    x = array_site_dataset['x']
-    y = array_site_dataset['y']
-    n = len(x)
-
-    t0 = time.time()
-    x_tot = x[0]
-    y_tot = y[0]
-
-    for i in trange(1, n):
-        x_tot += x[i]
-        y_tot += y[i]
-
-    x_mean = x_tot / n
-    y_mean = y_tot / n
-    dt = time.time() - t0
-    print("Means: {}, {}. Time: {}".format(x_mean, y_mean, dt))
 
 
 if __name__ == '__main__':
