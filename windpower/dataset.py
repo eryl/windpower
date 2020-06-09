@@ -462,7 +462,6 @@ class SiteDataset(object):
             self.dataset = self.dataset.isel(valid_time=slice(0, self.horizon))
 
         self.setup_reference_time(reference_time)
-        self.make_memdataset()
 
     def get_variable_definition(self):
         return self.variable_definitions
@@ -494,7 +493,6 @@ class SiteDataset(object):
         selected_indices = np.logical_and(start_time <= reference_times, reference_times < end_time)
         filtered_reference_time = reference_times[selected_indices]
         self.dataset = self.dataset.sel(reference_time=filtered_reference_time)
-
 
     def get_nwp_model(self):
         return self.nwp_model
@@ -542,7 +540,6 @@ class SiteDataset(object):
             fold = type(self)(dataset=self.dataset, reference_time=fold_times, **kwargs)
             remainder = type(self)(dataset=self.dataset, reference_time=remainder_times, **kwargs)
             yield fold, remainder
-
 
     def make_memdataset(self):
         n_ref_times = len(self.dataset['reference_time'])
@@ -622,6 +619,8 @@ class SiteDataset(object):
         self.targets = encoded_targets
 
     def __getitem__(self, item):
+        if not hasattr(self, 'windows'):
+            self.make_memdataset()
         data = dict(x=self.windows[item],
                     y=self.targets[item])
         if self.include_variable_index:
