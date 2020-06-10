@@ -1,6 +1,6 @@
 from lightgbm import LGBMRegressor
-from windpower.models import SklearnWrapper
-from mltrain.train import DiscreteHyperParameter, GeometricHyperParameter, IntegerRangeHyperParameter
+from windpower.models import SklearnWrapper, ModelConfig
+from mltrain.hyperparameter import DiscreteHyperParameter, GeometricHyperParameter, IntegerRangeHyperParameter
 
 n_estimators = 200
 learning_rate = 0.3
@@ -17,3 +17,7 @@ base_kwargs = dict(model=LGBMRegressor,
                    num_leaves=num_leaves,
                    max_depth=max_depth,
                    n_jobs=-1)
+
+model_config = ModelConfig(model=SklearnWrapper,
+                           model_args=base_args,
+                           model_kwargs=base_kwargs)
