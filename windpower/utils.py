@@ -1,5 +1,8 @@
 import datetime
 import importlib.util
+from pathlib import Path
+from typing import TypeVar
+
 
 def timestamp():
     """
@@ -41,3 +44,12 @@ def sliding_window(x, window_length, step_length=1, axis=0):
     new_stride = x.strides[:axis] + (between_window_stride, in_window_stride) + x.strides[axis + 1:]
     x2 = as_strided(x, shape=new_shape, strides=new_stride)
     return x2
+
+
+def load_config(training_config_path: Path, config_type):
+    mod = load_module(training_config_path)
+    for k,v in mod.__dict__.items():
+        if isinstance(v, config_type):
+            return v
+    raise ValueError(f"File {training_config_path} does not contain any {config_type} values")
+
