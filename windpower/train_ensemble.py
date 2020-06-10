@@ -22,7 +22,7 @@ from sklearn.preprocessing import StandardScaler
 from dataclasses import dataclass
 
 import mltrain.train
-from mltrain.train import DiscreteHyperParameter, HyperParameterTrainer, BaseModel, LowerIsBetterMetric, HigherIsBetterMetric
+from mltrain.train import DiscreteHyperParameter, HyperParameterTrainer, BaseModel, LowerIsBetterMetric, HigherIsBetterMetric, ObjectHyperParameterManager
 
 
 class DatasetWrapper(object):
@@ -54,7 +54,7 @@ def train(*, site_files,
         print(f"No site files in site dataset files in {site_files}")
     site_files = cleaned_site_files
 
-    base_model, base_args, base_kwargs = windpower.models.get_model_config(model_config_path)
+    model_config = windpower.models.get_model_config(model_config_path)
 
     ml_model = model_config_path.with_suffix('').name
 
@@ -92,6 +92,11 @@ def train(*, site_files,
         hp_search_iterations = training_config.hp_search_iterations
         train_kwargs = training_config.train_kwargs
 
+        training_config_hp_manager = ObjectHyperParameterManager(training_config)
+        model_config_hp_manager = ObjectHyperParameterManager(model_config)
+        dataset_config_hp_manager = ObjectHyperParameterManager(dataset_config)
+        variables_config_hp_manager = ObjectHyperParameterManager(variables_config)
+
         for i, (test_dataset, train_dataset) in tqdm(enumerate(site_dataset.k_fold_split(outer_folds)),
                                                      total=outer_folds):
             if outer_xval_loops is not None and i >= outer_xval_loops:
@@ -102,33 +107,39 @@ def train(*, site_files,
             train_reference_time = train_dataset.get_reference_times()
             np.savez(fold_dir / 'fold_reference_times.npz', train=train_reference_time, test=test_reference_times)
 
-            with HyperParameterTrainer(base_model=base_model,
-                                       base_args=base_args,
-                                       base_kwargs=base_kwargs) as hp_trainer:
-                if inner_folds > 1:
-                    for j, (validation_dataset, fit_dataset) in tqdm(
-                            enumerate(train_dataset.k_fold_split(inner_folds)),
-                            total=inner_folds):
-                        if inner_xval_loops is not None and j >= inner_xval_loops:
-                            break
+            if inner_folds > 1:
+                for j, (validation_dataset, fit_dataset) in tqdm(
+                        enumerate(train_dataset.k_fold_split(inner_folds)),
+                        total=inner_folds):
+                    if inner_xval_loops is not None and j >= inner_xval_loops:
+                        break
 
-                        output_dir = fold_dir / f'inner_fold_{j:02}'
-                        output_dir.mkdir()
-                        fit_reference_times = fit_dataset.get_reference_times()
-                        validation_reference_times = validation_dataset.get_reference_times()
-                        np.savez(output_dir / 'fold_reference_times.npz', train=fit_reference_times,
-                                 test=validation_reference_times)
-                        fit_dataset = DatasetWrapper(
-                            fit_dataset[:])  # This will return the whole dataset as a numpy array
-                        validation_dataset = DatasetWrapper(validation_dataset[:])
-                        hp_trainer.train(n=hp_search_iterations,
-                                         training_dataset=fit_dataset,
-                                         evaluation_dataset=validation_dataset,
-                                         output_dir=output_dir,
-                                         **train_kwargs)
-                        args, kwargs = hp_trainer.get_best_hyper_params()
-                        model = base_model(*args, **kwargs)
-                else:
+                    output_dir = fold_dir / f'inner_fold_{j:02}'
+                    output_dir.mkdir()
+                    fit_reference_times = fit_dataset.get_reference_times()
+                    validation_reference_times = validation_dataset.get_reference_times()
+                    np.savez(output_dir / 'fold_reference_times.npz', train=fit_reference_times,
+                             test=validation_reference_times)
+
+                    variables_config_id, variables_config_instance = variables_config_hp_manager.get_next()
+                    dataset_config_id, dataset_config_instance = dataset_config_hp_manager.get_next()
+                    training_config_id, training_config_instance = training_config_hp_manager.get_next()
+
+                    fit_dataset = fit_dataset_fold(dataset_config_instance)
+                    validation_dataset = validation_dataset_fold(dataset_config_instance)
+
+                    model_config_hp_manager.clear_performance()
+                    for k in trange(hp_search_iterations, desc="Hyper parameter searches"):
+                        model_config_id, model_config_instance = model_config_hp_manager.get_next()
+                        model = model_base(model_config)
+                        mltrain.train.train(model=model,
+                                            training_dataset=fit_dataset,
+                                            evaluation_dataset=validation_dataset,
+                                            training_config=training_config_instance)
+
+
+
+            else:
                     # With no inner loop, we just pick any hyper parameter
                     args, kwargs = hp_trainer.get_any_hyper_params()
                     model = base_model(*args, **kwargs)  # No HP tuning taking place
