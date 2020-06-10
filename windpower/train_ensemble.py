@@ -1,15 +1,12 @@
+import copy
 import json
 import shutil
 from tqdm import tqdm
+from dataclasses import dataclass
 from windpower.utils import timestamp, load_module
-from windpower.dataset import SiteDataset
+from windpower.dataset import SiteDataset, k_fold_split_reference_times, get_nwp_model_from_path, get_reference_time, get_site_id
 import windpower.models
-
-import argparse
-import csv
-import json
-import pickle
-from collections import defaultdict, deque
+from typing import Union, Optional
 
 from tqdm import tqdm, trange
 from pathlib import Path
@@ -17,12 +14,20 @@ import numpy as np
 np.seterr(all='warn')
 
 import numpy as np
-import sklearn.metrics
-from sklearn.preprocessing import StandardScaler
-from dataclasses import dataclass
 
 import mltrain.train
-from mltrain.train import DiscreteHyperParameter, HyperParameterTrainer, BaseModel, LowerIsBetterMetric, HigherIsBetterMetric, ObjectHyperParameterManager
+from mltrain.hyperparameter import DiscreteHyperParameter, HyperParameterTrainer, ObjectHyperParameterManager
+from windpower.utils import load_config
+
+@dataclass
+class TrainConfig(object):
+    outer_folds: int
+    outer_xval_loops: Optional[int]
+    inner_folds: Optional[int]
+    inner_xval_loops: Optional[int]
+    train_kwargs: mltrain.train.TrainingConfig
+    hp_search_iterations: int = 1
+    fold_padding: int = 0
 
 
 class DatasetWrapper(object):
@@ -30,11 +35,10 @@ class DatasetWrapper(object):
         self.dataset = dataset
 
     def __iter__(self):
-        yield self.dataset
+        yield self.dataset[:]
 
     def __len__(self):
         return len(self.dataset)
-
 
 
 def train(*, site_files,
@@ -61,12 +65,11 @@ def train(*, site_files,
     for site_dataset_path in tqdm(sorted(site_files)):
         dataset_config = windpower.dataset.get_dataset_config(dataset_config_path)
         variables_config = windpower.dataset.get_variables_config(variables_config_path)
-        site_dataset = SiteDataset(dataset_path=site_dataset_path,
-                                   dataset_config=dataset_config,
-                                   variables_config=variables_config)
 
-        site_id = site_dataset.get_id()
-        nwp_model = site_dataset.get_nwp_model()
+        site_id = get_site_id(site_dataset_path)
+        nwp_model = get_nwp_model_from_path(site_dataset_path)
+        reference_time = get_reference_time(site_dataset_path)
+
         site_dir = experiment_dir / ml_model / site_id / nwp_model / timestamp()
         site_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(variables_config_path, site_dir / 'variables_config.py')
@@ -84,71 +87,74 @@ def train(*, site_files,
             }
         }
 
-        training_config = load_module(training_config_path)
+        training_config = load_config(training_config_path, TrainConfig)
+        fold_padding = training_config.fold_padding
         outer_folds = training_config.outer_folds
         outer_xval_loops = training_config.outer_xval_loops
         inner_folds = training_config.inner_folds
         inner_xval_loops = training_config.inner_xval_loops
         hp_search_iterations = training_config.hp_search_iterations
+
         train_kwargs = training_config.train_kwargs
 
-        training_config_hp_manager = ObjectHyperParameterManager(training_config)
+        training_config_hp_manager = ObjectHyperParameterManager(train_kwargs)
         model_config_hp_manager = ObjectHyperParameterManager(model_config)
         dataset_config_hp_manager = ObjectHyperParameterManager(dataset_config)
         variables_config_hp_manager = ObjectHyperParameterManager(variables_config)
 
-        for i, (test_dataset, train_dataset) in tqdm(enumerate(site_dataset.k_fold_split(outer_folds)),
+        def train_hp_instance(train_times, test_times, output_dir):
+            variables_config_id, variables_config_instance = variables_config_hp_manager.get_next()
+            dataset_config_id, dataset_config_instance = dataset_config_hp_manager.get_next()
+            training_config_id, training_config_instance = training_config_hp_manager.get_next()
+            model_config_id, model_config_instance = model_config_hp_manager.get_next()
+            model_base, model_args, model_kwargs = model_config_instance.model, model_config_instance.model_args, model_config_instance.model_kwargs
+
+            model = model_base(*model_args, **model_kwargs)
+            train_dataset = SiteDataset(dataset_path=site_dataset_path,
+                                        reference_time=train_times,
+                                        variables_config=variables_config_instance,
+                                        dataset_config=dataset_config_instance)
+            validation_dataset = SiteDataset(dataset_path=site_dataset_path,
+                                             reference_time=test_times,
+                                             variables_config=variables_config_instance,
+                                             dataset_config=dataset_config_instance)
+            train_metadata = copy.copy(metadata)
+            train_metadata['dataset_config'] = dataset_config_instance
+            train_metadata['variables_config'] = variables_config_instance
+            train_metadata['model_config'] = model_config_instance
+            train_metadata['training_config'] = training_config_instance
+
+            mltrain.train.train(model=model,
+                                training_dataset=[train_dataset[:]],
+                                evaluation_dataset=[validation_dataset[:]],
+                                training_config=training_config_instance,
+                                metadata=train_metadata,
+                                output_dir=output_dir)
+
+        for i, (test_reference_times, train_reference_time) in tqdm(enumerate(k_fold_split_reference_times(reference_time,
+                                                                                            outer_folds, fold_padding
+                                                                                            )),
                                                      total=outer_folds):
             if outer_xval_loops is not None and i >= outer_xval_loops:
                 break
             fold_dir = site_dir / f'outer_fold_{i:02}'
             fold_dir.mkdir(parents=True)
-            test_reference_times = test_dataset.get_reference_times()
-            train_reference_time = train_dataset.get_reference_times()
             np.savez(fold_dir / 'fold_reference_times.npz', train=train_reference_time, test=test_reference_times)
 
             if inner_folds > 1:
-                for j, (validation_dataset, fit_dataset) in tqdm(
-                        enumerate(train_dataset.k_fold_split(inner_folds)),
+                for j, (validation_dataset_reference_times, fit_dataset_reference_times) in tqdm(
+                        enumerate(k_fold_split_reference_times(train_reference_time, inner_folds, fold_padding)),
                         total=inner_folds):
                     if inner_xval_loops is not None and j >= inner_xval_loops:
                         break
 
                     output_dir = fold_dir / f'inner_fold_{j:02}'
                     output_dir.mkdir()
-                    fit_reference_times = fit_dataset.get_reference_times()
-                    validation_reference_times = validation_dataset.get_reference_times()
-                    np.savez(output_dir / 'fold_reference_times.npz', train=fit_reference_times,
-                             test=validation_reference_times)
+                    np.savez(output_dir / 'fold_reference_times.npz', train=fit_dataset_reference_times,
+                             test=validation_dataset_reference_times)
 
-                    variables_config_id, variables_config_instance = variables_config_hp_manager.get_next()
-                    dataset_config_id, dataset_config_instance = dataset_config_hp_manager.get_next()
-                    training_config_id, training_config_instance = training_config_hp_manager.get_next()
-
-                    fit_dataset = fit_dataset_fold(dataset_config_instance)
-                    validation_dataset = validation_dataset_fold(dataset_config_instance)
-
-                    model_config_hp_manager.clear_performance()
                     for k in trange(hp_search_iterations, desc="Hyper parameter searches"):
-                        model_config_id, model_config_instance = model_config_hp_manager.get_next()
-                        model = model_base(model_config)
-                        mltrain.train.train(model=model,
-                                            training_dataset=fit_dataset,
-                                            evaluation_dataset=validation_dataset,
-                                            training_config=training_config_instance)
-
-
-
+                        train_hp_instance(fit_dataset_reference_times, validation_dataset_reference_times, output_dir)
             else:
-                    # With no inner loop, we just pick any hyper parameter
-                    args, kwargs = hp_trainer.get_any_hyper_params()
-                    model = base_model(*args, **kwargs)  # No HP tuning taking place
-
-            train_dataset = DatasetWrapper(train_dataset[:])
-            test_dataset = DatasetWrapper(test_dataset[:])
-            best_performance, best_model_path = mltrain.train.train(model=model,
-                                                                    training_dataset=train_dataset,
-                                                                    evaluation_dataset=test_dataset,
-                                                                    output_dir=fold_dir,
-                                                                    metadata=metadata,
-                                                                    **train_kwargs)
+                for k in trange(hp_search_iterations, desc="Hyper parameter searches"):
+                    train_hp_instance(train_reference_time, test_reference_times, fold_dir)

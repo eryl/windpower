@@ -164,19 +164,43 @@ def get_nwp_model_from_path(dataset_path):
         raise ValueError(f"Not a dataset path: {dataset_path}")
 
 
-class WindowedDataset(object):
-    def __init__(self, dataset: xr.Dataset, variables_config, window_config: DatasetConfig, nwp_model):
-        self.nwp_model = nwp_model
-        self.weather_variables = variables_config.weather_variables[self.nwp_model]
-        self.variable_definitions = variables_config.variable_definitions[self.nwp_model]
-        self.production_variable = variables_config.production_variable[self.nwp_model]
-        self.horizon = window_config.horizon
-        self.window_length = window_config.window_length
-        self.production_offset = window_config.production_offset
-        self.include_variable_index = window_config.include_variable_index
+def get_site_id(dataset_path: Path):
+    import re
+    # pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
+    pattern = re.compile(r'(\d+)_DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS.nc')
+    m = re.match(pattern, dataset_path.name)
+    if m is not None:
+        (model,) = m.groups()
+        return model
+    else:
+        raise ValueError(f"Not a dataset path: {dataset_path}")
 
-    def __getitem__(self, item):
-        ...
+
+def get_reference_time(site_dataset_path: Path):
+    with xr.open_dataset(site_dataset_path) as ds:
+        return ds['reference_time'].values
+
+
+
+def k_fold_split_reference_times(forecast_times, k, padding):
+    fold_intervals = split_datetimes(forecast_times, k, padding)
+
+    for i in range(len(fold_intervals)):
+        fold_start, fold_end = fold_intervals[i]
+        fold_times = forecast_times[fold_start:fold_end]
+        remainder_folds = []
+
+        # we should
+        if i > 0:
+            previous_fold_start, previous_fold_end = fold_intervals[i - 1]
+            remainder_folds.append(forecast_times[:previous_fold_end + 1])
+        if i < len(fold_intervals) - 1:
+            next_fold_start, next_fold_end = fold_intervals[i + 1]
+            remainder_folds.append(forecast_times[next_fold_start:])
+
+        remainder_times = np.concatenate(remainder_folds)
+        yield fold_times, remainder_times
+
 
 class SiteDataset(object):
     def __init__(self, *,
@@ -210,8 +234,9 @@ class SiteDataset(object):
             self.horizon = n_valid_times
         else:
             self.dataset = self.dataset.isel(valid_time=slice(0, self.horizon))
-
         self.setup_reference_time(reference_time)
+        self.n_windows_per_forecast = (self.horizon - self.window_length) + 1
+        self.len = len(self.dataset['reference_time'])*self.n_windows_per_forecast
 
     def get_variable_definition(self):
         return self.variable_definitions
@@ -254,47 +279,11 @@ class SiteDataset(object):
         return self.dataset['reference_time'].values
 
     def __len__(self):
-        return len(self.windows)
-
-    def k_fold_split(self, k, padding=12):
-        """
-        Create a generator object which will produce k-fold splits of the dataset. Since this is assumed to be a
-        time-series dataset, folds will consist of consecutive windows which has at least *padding* hours of no overlap
-        :param k:
-        :param padding: The folds will have this amounts of hours of no overlap
-        :return: An iterator over k pairs of datasets, the first is the left out fold, the second is the remainder
-        """
-        # We do things simply, just divide the forecasts into k folds and remove enough of them in the ends so that we
-        # satisfy the padding condition
-
-        kwargs = dict(dataset_path=self.dataset_path,
-                      dataset_config=self.dataset_config,
-                      variables_config=self.variables_config)
-
-        forecast_times = self.dataset['reference_time'].values
-        fold_intervals = split_datetimes(forecast_times, k, padding+self.horizon)
-
-        for i in range(len(fold_intervals)):
-            fold_start, fold_end = fold_intervals[i]
-            fold_times = forecast_times[fold_start:fold_end]
-            remainder_folds = []
-            # we should
-            if i > 0:
-                previous_fold_start, previous_fold_end = fold_intervals[i-1]
-                remainder_folds.append(forecast_times[:previous_fold_end+1])
-            if i < len(fold_intervals) - 1:
-                next_fold_start, next_fold_end = fold_intervals[i+1]
-                remainder_folds.append(forecast_times[next_fold_start:])
-
-            remainder_times = np.concatenate(remainder_folds)
-            fold = type(self)(dataset=self.dataset, reference_time=fold_times, **kwargs)
-            remainder = type(self)(dataset=self.dataset, reference_time=remainder_times, **kwargs)
-            yield fold, remainder
+        return self.len
 
     def make_memdataset(self):
         n_ref_times = len(self.dataset['reference_time'])
         n_valid_times = len(self.dataset['valid_time'])
-        self.n_windows_per_forecast = (self.horizon - self.window_length) + 1
 
         var_arrays = []
         var_info = dict()
@@ -376,6 +365,7 @@ class SiteDataset(object):
         if self.include_variable_info:
             data['variable_info'] = self.variable_info
         return data
+
 
 
 class MultiSiteDataset(object):

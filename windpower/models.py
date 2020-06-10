@@ -1,13 +1,24 @@
 import pickle
-import importlib
 import time
+from pathlib import Path
 
 import numpy as np
 import sklearn.metrics
 from sklearn.decomposition import PCA
 
-from mltrain.train import BaseModel, LowerIsBetterMetric, HigherIsBetterMetric
+from mltrain.performance import LowerIsBetterMetric, HigherIsBetterMetric
+from mltrain.train import BaseModel
+
 from windpower.dataset import VariableType
+from dataclasses import dataclass
+from typing import Type, Sequence, Mapping
+from windpower.utils import load_config
+
+@dataclass
+class ModelConfig(object):
+    model: Type
+    model_args: Sequence
+    model_kwargs: Mapping
 
 class SklearnWrapper(BaseModel):
     def __init__(self, *args, model, clip_predictions=True, scaling=False, decorrelate=False, **kwargs):
@@ -86,8 +97,8 @@ class SklearnWrapper(BaseModel):
         r_squared_metric = HigherIsBetterMetric('r_squared')
         return [mae_metric, mse_metric, rmse_metric, mad_metric, r_squared_metric]
 
-    def save(self, save_path):
-        with open(save_path, 'wb') as fp:
+    def save(self, save_path: Path):
+        with open(save_path.with_suffix('.pkl'), 'wb') as fp:
             pickle.dump(self.model, fp)
 
 
@@ -98,7 +109,4 @@ def get_model_config(model_path):
     :param config_path:
     :return: the triplet (model, base_args, base_kwargs)
     """
-    spec = importlib.util.spec_from_file_location("variables_definiton", model_path)
-    model_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(model_module)
-    return model_module.model, model_module.base_args, model_module.base_kwargs
+    return load_config(model_path, ModelConfig)
