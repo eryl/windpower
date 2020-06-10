@@ -167,11 +167,11 @@ def get_nwp_model_from_path(dataset_path):
 def get_site_id(dataset_path: Path):
     import re
     # pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    pattern = re.compile(r'(\d+)_DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS.nc')
+    pattern = re.compile(r'(\d+)_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc')
     m = re.match(pattern, dataset_path.name)
     if m is not None:
-        (model,) = m.groups()
-        return model
+        site_id, model, = m.groups()
+        return site_id
     else:
         raise ValueError(f"Not a dataset path: {dataset_path}")
 
