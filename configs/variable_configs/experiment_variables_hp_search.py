@@ -19,7 +19,7 @@ hp_weather_variables = {
 
     "FMI_HIRLAM": ["Temperature", "WindUMS", "WindVMS", 'phi', 'r', 'lead_time', 'time_of_day'],
     "NCEP_GFS": DiscreteHyperParameter([
-        ['WindUMS_Height', 'V'],
+        ['WindUMS_Height', 'WindVMS_Height'],
         ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height'],
         ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height', 'lead_time',],
         ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height', 'lead_time',],
