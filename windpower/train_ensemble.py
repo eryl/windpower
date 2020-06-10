@@ -2,7 +2,7 @@ import json
 import shutil
 from tqdm import tqdm
 from windpower.utils import timestamp, load_module
-from windpower.dataset import SiteDataset, read_variables_file
+from windpower.dataset import SiteDataset
 import windpower.models
 
 import argparse
@@ -36,55 +36,6 @@ class DatasetWrapper(object):
         return len(self.dataset)
 
 
-class EnsembleModelWrapper(BaseModel):
-    def __init__(self, *args, model, scaling=False, **kwargs):
-        self.model = model(*args, **kwargs)
-        self.scaling = scaling
-        self.args = args
-        self.kwargs = kwargs
-
-    def fit(self, batch):
-        x = batch['x']
-        y = batch['y']
-        if self.scaling:
-            self.x_mean = np.mean(x, axis=0)
-            self.x_std = np.std(x, axis=0)
-            x = (x - self.x_mean)/self.x_std
-        self.model.fit(x, y)
-
-    def evaluate(self, batch):
-        x = batch['x']
-        y = batch['y']
-        if self.scaling:
-            x = (x - self.x_mean) / self.x_std
-        y_hats = self.model.predict(x)
-
-        mse = sklearn.metrics.mean_squared_error(y, y_hats)
-        rmse = np.sqrt(mse)
-        mae = sklearn.metrics.mean_absolute_error(y, y_hats)
-        mad = sklearn.metrics.median_absolute_error(y, y_hats)
-        r_squared = sklearn.metrics.r2_score(y, y_hats)
-        return {'mean_squared_error': mse,
-                'root_mean_squared_error': rmse,
-                'mean_absolute_error': mae,
-                'median_absolute_deviance': mad,
-                'r_squared': r_squared}
-
-    def get_metadata(self):
-        return dict(model=self.model.__class__.__name__, args=self.args, kwargs=self.kwargs)
-
-    def evaluation_metrics(self):
-        mse_metric = LowerIsBetterMetric('mean_squared_error')
-        rmse_metric = LowerIsBetterMetric('root_mean_squared_error')
-        mae_metric = LowerIsBetterMetric('mean_absolute_error')
-        mad_metric = LowerIsBetterMetric('median_absolute_deviance')
-        r_squared_metric = HigherIsBetterMetric('r_squared')
-        return [mae_metric, mse_metric, rmse_metric, mad_metric, r_squared_metric]
-
-    def save(self, save_path):
-        with open(save_path, 'wb') as fp:
-            pickle.dump(self.model, fp)
-
 
 def train(*, site_files,
           experiment_dir,
@@ -104,12 +55,16 @@ def train(*, site_files,
     site_files = cleaned_site_files
 
     base_model, base_args, base_kwargs = windpower.models.get_model_config(model_config_path)
+
     ml_model = model_config_path.with_suffix('').name
 
     for site_dataset_path in tqdm(sorted(site_files)):
+        dataset_config = windpower.dataset.get_dataset_config(dataset_config_path)
+        variables_config = windpower.dataset.get_variables_config(variables_config_path)
         site_dataset = SiteDataset(dataset_path=site_dataset_path,
-                                   variables_file=variables_config_path,
-                                   dataset_config_file=dataset_config_path)
+                                   dataset_config=dataset_config,
+                                   variables_config=variables_config)
+
         site_id = site_dataset.get_id()
         nwp_model = site_dataset.get_nwp_model()
         site_dir = experiment_dir / ml_model / site_id / nwp_model / timestamp()

@@ -5,4 +5,4 @@ alpha = 0.0032
 
 model = SklearnWrapper
 base_args = tuple()
-base_kwargs = dict(model=Lasso, scaling=True, alpha=alpha)
+base_kwargs = dict(model=Lasso, scaling=True, alpha=alpha, max_iter=5000)

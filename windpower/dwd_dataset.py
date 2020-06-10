@@ -4,10 +4,10 @@ import xarray as xr
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm, trange
-from windpower.dataset import SiteDataset, Variable, DiscretizedVariableEvenBins, CategoricalVariable
+from windpower.dataset import SiteDatasetOld, Variable, DiscretizedVariableEvenBins, CategoricalVariable
 
 
-class DWDSiteDataset(SiteDataset):
+class DWDSiteDataset(SiteDatasetOld):
     def __init__(self, *, weather_variables=('T', 'U', 'V', 'phi', 'r'), **kwargs):
         super().__init__(weather_variables=weather_variables, **kwargs)
 
@@ -40,9 +40,9 @@ class DWDSiteDataset(SiteDataset):
 class MultiSiteDataset(object):
     def __init__(self, datasets, *, window_length, production_offset, horizon=None,
                  weather_variables=('T', 'U', 'V', 'phi', 'r'), production_variable='site_production'):
-        self.datasets = [SiteDataset(dataset_path=d, window_length=window_length, production_offset=production_offset,
-                                     horizon=horizon, weather_variables=weather_variables,
-                                     production_variable=production_variable) for d in datasets]
+        self.datasets = [SiteDatasetOld(dataset_path=d, window_length=window_length, production_offset=production_offset,
+                                        horizon=horizon, weather_variables=weather_variables,
+                                        production_variable=production_variable) for d in datasets]
         self.window_length = window_length
         self.horizon = horizon
         self.production_offset = production_offset
@@ -60,9 +60,9 @@ def main():
     parser.add_argument('site_datafile', type=Path)
     parser.add_argument('cache_file', type=Path)
     args = parser.parse_args()
-    site_dataset = SiteDataset(dataset_path=args.site_datafile, window_length=7,
-                               production_offset=3, use_cache=False, include_variable_index=True,
-                               include_lead_time=True, include_time_of_day=True)
+    site_dataset = SiteDatasetOld(dataset_path=args.site_datafile, window_length=7,
+                                  production_offset=3, use_cache=False, include_variable_index=True,
+                                  include_lead_time=True, include_time_of_day=True)
     for i, (fold, remainder) in enumerate(site_dataset.k_fold_split(10)):
         for j, (inner_fold, inner_remainder) in enumerate(remainder.k_fold_split(10)):
             for b in inner_fold:

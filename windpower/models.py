@@ -7,7 +7,7 @@ import sklearn.metrics
 from sklearn.decomposition import PCA
 
 from mltrain.train import BaseModel, LowerIsBetterMetric, HigherIsBetterMetric
-
+from windpower.dataset import VariableType
 
 class SklearnWrapper(BaseModel):
     def __init__(self, *args, model, clip_predictions=True, scaling=False, decorrelate=False, **kwargs):
@@ -25,9 +25,19 @@ class SklearnWrapper(BaseModel):
         x = batch['x']
         y = batch['y']
         if self.scaling:
-            self.x_mean = np.mean(x, axis=0)
-            self.x_std = np.std(x, axis=0)
-            x = (x - self.x_mean)/self.x_std
+            if 'variable_info' in batch:
+                # Only scale continuous variables
+                self.var_stats = dict()
+                for var_name, (start, end, var_type) in batch['variable_info'].items():
+                    if var_type == VariableType.continuous:
+                        self.var_stats[(start, end)] = (np.mean(x[:, start:end], axis=0, keepdims=True),
+                                                        np.std(x[:, start:end], axis=0, keepdims=True))
+                for (start, end), (mean, std) in self.var_stats.items():
+                    x[:, start:end] = (x[:, start:end]-mean)/std
+            else:
+                self.x_mean = np.mean(x, axis=0)
+                self.x_std = np.std(x, axis=0)
+                x = (x - self.x_mean)/self.x_std
         if self.decorrelate:
             print("Fitting PCA")
             t0 = time.time()
@@ -40,7 +50,11 @@ class SklearnWrapper(BaseModel):
         x = batch['x']
         y = batch['y']
         if self.scaling:
-            x = (x - self.x_mean) / self.x_std
+            if hasattr(self, 'var_stats'):
+                for (start, end), (mean, std) in self.var_stats.items():
+                    x[:, start:end] = (x[:, start:end]-mean)/std
+            else:
+                x = (x - self.x_mean) / self.x_std
         if self.decorrelate:
             x = self.pca.transform(x)
         y_hats = self.model.predict(x)
