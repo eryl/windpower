@@ -20,16 +20,16 @@ hp_weather_variables = {
     "FMI_HIRLAM": ["Temperature", "WindUMS", "WindVMS", 'phi', 'r', 'lead_time', 'time_of_day'],
     "NCEP_GFS": DiscreteHyperParameter([
         ['WindUMS_Height', 'V'],
-        ['T', 'WindUMS_Height', 'WindVMS_Height'],
-        ['T', 'WindUMS_Height', 'WindVMS_Height', 'lead_time',],
-        ['T', 'WindUMS_Height', 'WindVMS_Height', 'lead_time',],
-        ['T', 'WindUMS_Height', 'WindVMS_Height', 'time_of_day'],
-        ['T', 'WindUMS_Height', 'WindVMS_Height', 'lead_time', 'time_of_day'],
+        ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height'],
+        ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height', 'lead_time',],
+        ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height', 'lead_time',],
+        ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height', 'time_of_day'],
+        ['Temperature_Height', 'WindUMS_Height', 'WindVMS_Height', 'lead_time', 'time_of_day'],
         ['phi', 'r'],
-        ['T', 'phi', 'r'],
-        ['T', 'phi', 'r', 'lead_time',],
-        ['T', 'phi', 'r', 'time_of_day'],
-        ['T', 'phi', 'r', 'lead_time', 'time_of_day']
+        ['Temperature_Height', 'phi', 'r'],
+        ['Temperature_Height', 'phi', 'r', 'lead_time',],
+        ['Temperature_Height', 'phi', 'r', 'time_of_day'],
+        ['Temperature_Height', 'phi', 'r', 'lead_time', 'time_of_day']
     ]),
     "MetNo_MEPS":
         ["x_wind_10m", "y_wind_10m", "x_wind_z", "y_wind_z", "air_pressure_at_sea_level",
