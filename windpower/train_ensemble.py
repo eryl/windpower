@@ -95,9 +95,7 @@ def train(*, site_files,
         inner_xval_loops = training_config.inner_xval_loops
         hp_search_iterations = training_config.hp_search_iterations
 
-        train_kwargs = training_config.train_kwargs
-
-        training_config_hp_manager = ObjectHyperParameterManager(train_kwargs)
+        training_config_hp_manager = ObjectHyperParameterManager(training_config)
         model_config_hp_manager = ObjectHyperParameterManager(model_config)
         dataset_config_hp_manager = ObjectHyperParameterManager(dataset_config)
         variables_config_hp_manager = ObjectHyperParameterManager(variables_config)
@@ -124,10 +122,11 @@ def train(*, site_files,
             train_metadata['model_config'] = model_config_instance
             train_metadata['training_config'] = training_config_instance
 
+            train_kwargs = training_config_instance.train_kwargs
             mltrain.train.train(model=model,
                                 training_dataset=[train_dataset[:]],
                                 evaluation_dataset=[validation_dataset[:]],
-                                training_config=training_config_instance,
+                                training_config=train_kwargs,
                                 metadata=train_metadata,
                                 output_dir=output_dir)
 
