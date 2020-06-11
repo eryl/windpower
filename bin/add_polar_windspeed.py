@@ -7,7 +7,7 @@ from tqdm import tqdm
 import functools
 import multiprocessing.dummy as multiprocessing
 
-from windpower.dataset import get_nwp_model
+from windpower.dataset import get_nwp_model_from_path
 
 def main():
     parser = argparse.ArgumentParser(description="Add polar windspeeds for datasets")
@@ -26,7 +26,7 @@ def main():
 
 def process_dataset(f, output_dir=None, overwrite=False):
     ds = xr.open_dataset(f)
-    nwp_model = get_nwp_model(ds, f)
+    nwp_model = get_nwp_model_from_path(f)
     do_write = False
     if nwp_model == "DWD_ICON-EU":
         if 'phi' not in ds.variables:
@@ -45,10 +45,17 @@ def process_dataset(f, output_dir=None, overwrite=False):
             ds['r_z'], ds['phi_z'] = polar_windspeed(ds, 'x_wind_z', 'y_wind_z')
             ds['r_10m'], ds['phi_10m'] = polar_windspeed(ds, 'x_wind_10m', 'y_wind_10m')
             do_write = True
+    elif nwp_model == 'DWD_NCEP':
+        if 'dwd_phi' not in ds.variables:
+            ds['dwd_r'], ds['dwd_phi'] = polar_windspeed(ds, 'U', 'V')
+            do_write = True
+        if 'ncep_phi' not in ds.variables:
+            ds['ncep_r'], ds['ncep_phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
+            do_write = True
     if do_write:
         if output_dir is not None:
             output_path = output_dir / f.name
-            output_dir.mkdir(parent=True, exist_ok=True)
+            output_dir.mkdir(parents=True, exist_ok=True)
         else:
             output_path = f
         if output_path.exists() and not overwrite:
