@@ -1,5 +1,6 @@
 import datetime
 import importlib.util
+import re
 from pathlib import Path
 from typing import TypeVar
 
@@ -53,3 +54,31 @@ def load_config(training_config_path: Path, config_type):
             return v
     raise ValueError(f"File {training_config_path} does not contain any {config_type} values")
 
+
+
+def reconstruct_dataclass(str_rep, dc):
+    pattern = r"{}\((.*)\)".format(dc.__name__)
+    m = re.match(pattern, str_rep)
+    if m is not None:
+        args, = m.groups()
+        # We need to sanitize the string, converting any <Object at 0x0000> to a string
+        sanitizers = [r"<([\w.]+) object at 0x[\da-f]+>", r"<class '([\w.]+)'>"]
+        replaced = r"'\g<1>'"
+        sanitized = args
+        for sanitizer in sanitizers:
+            sanitized = re.sub(sanitizer, replaced, sanitized)
+        contents = eval('dict({})'.format(sanitized))
+        return contents
+
+
+def parse_metadata_configs(metadata):
+    dataset_config_str = metadata['dataset_config']
+    variables_config_str = metadata['variables_config']
+    model_config_str = metadata['model_config']
+
+    from windpower.dataset import VariableConfig, DatasetConfig
+    from windpower.models import ModelConfig
+    variables_config = reconstruct_dataclass(variables_config_str, VariableConfig)
+    dataset_config = reconstruct_dataclass(dataset_config_str, DatasetConfig)
+    model_config = reconstruct_dataclass(model_config_str, ModelConfig)
+    return dict(variables_config=variables_config, model_config=model_config, dataset_config=dataset_config)
