@@ -7,6 +7,7 @@ variables_config = VariableConfig(
         "FMI_HIRLAM": 'site_production',
         "NCEP_GFS":  'site_production',
         "MetNo_MEPS": 'site_production',
+        'DWD_NCEP':  'site_production',
     },
     variable_definitions={
         'DWD_ICON-EU': {'T': Variable('T'),
@@ -64,6 +65,26 @@ variables_config = VariableConfig(
             'lead_time': Variable('lead_time'),
             'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
                                                one_hot_encode=True),
+        },
+        'DWD_NCEP': {
+            'T': Variable('T'),
+            'U': Variable('U'),
+            'V': Variable('V'),
+            'dwd_phi': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
+                                               one_hot_encode=True),
+            'dwd_r': Variable('r'),
+            'WindUMS_Height': Variable('WindUMS_Height'),
+            'WindVMS_Height': Variable('WindVMS_Height'),
+            'Temperature_Height': Variable('Temperature_Height'),
+            'PotentialTemperature_Sigma': Variable('PotentialTemperature_Sigma'),
+            'WindGust': Variable('WindGust'),
+            'ncep_phi': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
+                                               one_hot_encode=True),
+            'ncep_r': Variable('r'),
+            'site_production': Variable('site_production'),
+            'lead_time': Variable('lead_time'),
+            'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
+                                               one_hot_encode=True),
         }
     },
     weather_variables={
@@ -72,5 +93,7 @@ variables_config = VariableConfig(
         "NCEP_GFS": ['WindUMS_Height', 'WindVMS_Height', 'Temperature_Height', 'phi', 'r', 'lead_time', 'time_of_day'],
         "MetNo_MEPS": ["x_wind_10m", "y_wind_10m", "x_wind_z", "y_wind_z", "air_pressure_at_sea_level",
                        "air_temperature_0m", "air_temperature_2m", "air_temperature_z",
-                       'phi_10m', 'r_10m', 'phi_z', 'r_z', 'lead_time', 'time_of_day']
+                       'phi_10m', 'r_10m', 'phi_z', 'r_z', 'lead_time', 'time_of_day'],
+        "DWD_NCEP": ['T', 'U', 'V', 'dwd_phi', 'dwd_r', 'WindUMS_Height', 'WindVMS_Height', 'Temperature_Height',
+                     'ncep_phi', 'ncep_r', 'lead_time', 'time_of_day'],
     })
