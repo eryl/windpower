@@ -62,7 +62,7 @@ def train(*, site_files,
 
     ml_model = model_config_path.with_suffix('').name
 
-    for site_dataset_path in tqdm(sorted(site_files)):
+    for site_dataset_path in tqdm(sorted(site_files), desc="Sites"):
         dataset_config = windpower.dataset.get_dataset_config(dataset_config_path)
         variables_config = windpower.dataset.get_variables_config(variables_config_path)
 
@@ -130,10 +130,9 @@ def train(*, site_files,
                                 metadata=train_metadata,
                                 output_dir=output_dir)
 
-        for i, (test_reference_times, train_reference_time) in tqdm(enumerate(k_fold_split_reference_times(reference_time,
-                                                                                            outer_folds, fold_padding
-                                                                                            )),
-                                                     total=outer_folds):
+        for i, (test_reference_times, train_reference_time) in tqdm(
+                enumerate(k_fold_split_reference_times(reference_time,outer_folds, fold_padding)),
+                total=outer_folds, desc="Outer folds"):
             if outer_xval_loops is not None and i >= outer_xval_loops:
                 break
             fold_dir = site_dir / f'outer_fold_{i:02}'
@@ -143,7 +142,8 @@ def train(*, site_files,
             if inner_folds > 1:
                 for j, (validation_dataset_reference_times, fit_dataset_reference_times) in tqdm(
                         enumerate(k_fold_split_reference_times(train_reference_time, inner_folds, fold_padding)),
-                        total=inner_folds):
+                        total=inner_folds,
+                desc="Inner folds"):
                     if inner_xval_loops is not None and j >= inner_xval_loops:
                         break
 
