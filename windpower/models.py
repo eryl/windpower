@@ -98,8 +98,11 @@ class SklearnWrapper(BaseModel):
         return [mae_metric, mse_metric, rmse_metric, mad_metric, r_squared_metric]
 
     def save(self, save_path: Path):
-        with open(save_path.with_suffix('.pkl'), 'wb') as fp:
+        save_path = save_path.with_suffix('.pkl')
+        with open(save_path, 'wb') as fp:
             pickle.dump(self.model, fp)
+        return save_path
+
 
 
 def get_model_config(model_path):
