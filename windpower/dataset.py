@@ -463,7 +463,11 @@ weather_variables={
 }
 )
 
-
+DEFAULT_DATASET_CONFIG = DatasetConfig(horizon=30,
+                                       window_length=7,
+                                       production_offset=3,
+                                       include_variable_info=True,
+                                       )
 def main():
     import argparse
     from pathlib import Path
