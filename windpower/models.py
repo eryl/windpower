@@ -21,53 +21,65 @@ class ModelConfig(object):
     model_kwargs: Mapping
 
 class SklearnWrapper(BaseModel):
-    def __init__(self, *args, model, clip_predictions=True, scaling=False, decorrelate=False, **kwargs):
+    def __init__(self, *args, model, clip_predictions=True, scaling=False, decorrelate=False,
+                 training_dataset=None, validation_dataset=None, **kwargs):
         self.model = model(*args, **kwargs)
         self.scaling = scaling
         self.clip_predictions = clip_predictions
         self.decorrelate = decorrelate
+        self.training_dataset = training_dataset
+        self.validation_dataset = validation_dataset
         if self.decorrelate and not self.scaling:
             print("Setting scaling=True, since decorrelate=True")
             self.scaling = True
         self.args = args
         self.kwargs = kwargs
 
-    def fit(self, batch):
-        x = batch['x']
-        y = batch['y']
+    def fit_normalizer(self, x, variable_info=None):
         if self.scaling:
-            if 'variable_info' in batch:
+            if variable_info is not None:
                 # Only scale continuous variables
                 self.var_stats = dict()
-                for var_name, (start, end, var_type) in batch['variable_info'].items():
+                for var_name, (start, end, var_type) in variable_info.items():
                     if var_type == VariableType.continuous:
                         self.var_stats[(start, end)] = (np.mean(x[:, start:end], axis=0, keepdims=True),
                                                         np.std(x[:, start:end], axis=0, keepdims=True))
                 for (start, end), (mean, std) in self.var_stats.items():
-                    x[:, start:end] = (x[:, start:end]-mean)/std
+                    x[:, start:end] = (x[:, start:end] - mean) / std
             else:
                 self.x_mean = np.mean(x, axis=0)
                 self.x_std = np.std(x, axis=0)
-                x = (x - self.x_mean)/self.x_std
+                x = (x - self.x_mean) / self.x_std
         if self.decorrelate:
             print("Fitting PCA")
             t0 = time.time()
             self.pca = PCA()
             x = self.pca.fit_transform(x)
             print(f"PCA.fit_transform took {time.time() - t0}s")
+        return x
+
+    def normalize_data(self, x):
+        if self.scaling:
+            if hasattr(self, 'var_stats'):
+                for (start, end), (mean, std) in self.var_stats.items():
+                    x[:, start:end] = (x[:, start:end] - mean) / std
+            else:
+                x = (x - self.x_mean) / self.x_std
+        if self.decorrelate:
+            x = self.pca.transform(x)
+        return x
+
+    def fit(self, batch):
+        x = batch['x']
+        y = batch['y']
+        variable_info = batch.get('variable_info', None)
+        x = self.fit_normalizer(x, variable_info)
         self.model.fit(x, y)
 
     def evaluate(self, batch):
         x = batch['x']
         y = batch['y']
-        if self.scaling:
-            if hasattr(self, 'var_stats'):
-                for (start, end), (mean, std) in self.var_stats.items():
-                    x[:, start:end] = (x[:, start:end]-mean)/std
-            else:
-                x = (x - self.x_mean) / self.x_std
-        if self.decorrelate:
-            x = self.pca.transform(x)
+        x = self.normalize_data(x)
         y_hats = self.model.predict(x)
         if self.clip_predictions:
             np.clip(y_hats, 0, 1)
@@ -105,8 +117,23 @@ class SklearnWrapper(BaseModel):
 
 
 class LightGBMWrapper(SklearnWrapper):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, early_stopping_rounds=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.early_stopping_rounds = early_stopping_rounds
+
+    def fit(self, batch):
+        x = batch['x']
+        y = batch['y']
+        variable_info = batch.get('variable_info', None)
+        x = self.fit_normalizer(x, variable_info)
+        if self.validation_dataset is not None:
+            validation_data = self.validation_dataset[:]
+            eval_x = validation_data['x']
+            eval_y = validation_data['y']
+            eval_x = self.normalize_data(eval_x)
+            self.model.fit(x, y, eval_set=[(eval_x, eval_y)], early_stopping_rounds=self.early_stopping_rounds)
+
+
 
 
 def get_model_config(model_path):

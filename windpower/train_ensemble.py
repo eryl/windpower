@@ -110,7 +110,6 @@ def train(*, site_files,
                                              reference_time=settings.test_times,
                                              variables_config=settings.variables_config,
                                              dataset_config=settings.dataset_config)
-
             train_metadata = copy.copy(metadata)
             train_metadata['hp_settings'] = settings
 
@@ -119,10 +118,12 @@ def train(*, site_files,
                                training_dataset=train_dataset,
                                validation_dataset=validation_dataset,
                                **settings.model_config.model_kwargs)
+            train_dataset = [train_dataset[:]]  # The training script assumes the dataset is an iterator over mini-batches. We but all the data in a single batch
+            validation_dataset = [validation_dataset[:]]
             return mltrain.train.TrainingArguments(model=model,
                                                    output_dir=settings.output_dir,
-                                                   training_dataset=[train_dataset[:]],
-                                                   evaluation_dataset=[validation_dataset[:]],
+                                                   training_dataset=train_dataset,
+                                                   evaluation_dataset=validation_dataset,
                                                    metadata=train_metadata,
                                                    artifacts={'settings.pkl': settings},
                                                    training_config=training_config.train_kwargs)
