@@ -104,6 +104,10 @@ class SklearnWrapper(BaseModel):
         return save_path
 
 
+class LightGBMWrapper(SklearnWrapper):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
 
 def get_model_config(model_path):
     """
