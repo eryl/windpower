@@ -6,7 +6,7 @@ n_estimators = IntegerRangeHyperParameter(160, 3000)
 learning_rate = GeometricHyperParameter(0.001, 0.5)
 num_leaves = IntegerRangeHyperParameter(140, 1024)
 max_depth = -1 #IntegerRangeHyperParameter(-1, 30)
-boosting_type = DiscreteHyperParameter(['gbdt', 'dart'])
+boosting_type = 'gbdt' #DiscreteHyperParameter(['gbdt', 'dart'])
 
 model = LightGBMWrapper
 base_args = tuple()
