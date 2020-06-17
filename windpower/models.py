@@ -133,7 +133,16 @@ class LightGBMWrapper(SklearnWrapper):
             eval_x = self.normalize_data(eval_x)
             self.model.fit(x, y, eval_set=[(eval_x, eval_y)], early_stopping_rounds=self.early_stopping_rounds)
 
+    def get_metadata(self):
+        model_metadata = dict(model=self.model.__class__.__name__,
+                              scaling=self.scaling,
+                              clip_predictions=self.clip_predictions,
+                              decorrelate=self.decorrelate,
+                              args=self.args,
+                              kwargs=self.kwargs,
+                              best_iteration=self.model.best_iteration_)
 
+        return model_metadata
 
 
 def get_model_config(model_path):

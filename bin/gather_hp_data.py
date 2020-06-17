@@ -1,10 +1,12 @@
 import argparse
+import pickle
 from pathlib import Path
 import json
 import re
 import numpy as np
 from csv import DictWriter, DictReader
 from windpower.dataset import get_nwp_model_from_path, get_site_id
+import mltrain.train
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize hyper parameter performance data to a csv ")
@@ -69,7 +71,26 @@ def main():
                         model_kwargs = metadata['model_metadata']['kwargs']
                         for kwarg, value in model_kwargs.items():
                             experiment_data[kwarg] = value
-
+                    best_model_path = experiment / 'best_model'
+                    if best_model_path.exists():
+                        with open(best_model_path, 'rb') as fp:
+                            best_model = pickle.load(fp)
+                        if isinstance(best_model, mltrain.train.BaseModel):
+                            model_metadata = best_model.get_metadata()
+                            for k, v in model_metadata.items():
+                                if k == 'args':
+                                    for i, arg in enumerate(v):
+                                        experiment_data[f'args_{i}'] = arg
+                                elif k == 'kwargs':
+                                    for kwarg_name, kwarg in v.items():
+                                        experiment_data[f'kwarg_{kwarg_name}'] = kwarg
+                                else:
+                                    experiment_data[k] = v
+                        try:
+                            best_iteration = best_model.best_iteration_
+                            experiment_data['best_iteration'] = best_iteration
+                        except AttributeError:
+                            pass
                     best_performance_path = experiment / 'best_performance.csv'
                     if best_performance_path.exists():
                         with open(best_performance_path) as in_fp:
