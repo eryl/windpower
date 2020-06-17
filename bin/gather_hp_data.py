@@ -98,7 +98,8 @@ def main():
                                 iter(DictReader(in_fp)))  # take the first row, it's the only one
                             for k, v in best_performance.items():
                                 experiment_data[k] = v
-
+                    else:
+                        continue  # Points without performance are useless
                     fold_reference_times_path = experiment / 'fold_reference_times.npz'
                     if fold_reference_times_path.exists():
                         fold_reference_times = np.load(fold_reference_times_path)
