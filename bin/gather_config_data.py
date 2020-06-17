@@ -17,7 +17,7 @@ def main():
     for d in args.experiment_directories:
         for outer_fold_dir in d.glob('**/outer_fold_*'):
             for inner_fold_dir in outer_fold_dir.glob('inner_fold_*'):
-                for experiment in inner_fold_dir.glob('20*'):
+                for experiment in inner_fold_dir.glob('20*'):  # 20* to exclude 'latest_expriment' symlink
                     experiment_data = dict()
                     metadata_path = experiment / 'metadata.json'
                     if metadata_path.exists():
