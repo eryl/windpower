@@ -117,9 +117,10 @@ class SklearnWrapper(BaseModel):
 
 
 class LightGBMWrapper(SklearnWrapper):
-    def __init__(self, *args, early_stopping_rounds=None, **kwargs):
+    def __init__(self, *args, early_stopping_rounds=None, eval_metric=('l1',), **kwargs):
         super().__init__(*args, **kwargs)
         self.early_stopping_rounds = early_stopping_rounds
+        self.eval_metric = eval_metric
 
     def fit(self, batch):
         x = batch['x']
@@ -131,7 +132,9 @@ class LightGBMWrapper(SklearnWrapper):
             eval_x = validation_data['x']
             eval_y = validation_data['y']
             eval_x = self.normalize_data(eval_x)
-            self.model.fit(x, y, eval_set=[(eval_x, eval_y)], early_stopping_rounds=self.early_stopping_rounds)
+            self.model.fit(x, y, eval_set=[(eval_x, eval_y)],
+                           early_stopping_rounds=self.early_stopping_rounds,
+                           eval_metric=self.eval_metric)
 
     def get_metadata(self):
         model_metadata = dict(model=self.model.__class__.__name__,
