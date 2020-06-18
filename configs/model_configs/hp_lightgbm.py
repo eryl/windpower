@@ -7,7 +7,7 @@ learning_rate = GeometricHyperParameter(0.01, 0.5)
 num_leaves = IntegerRangeHyperParameter(140, 1024)
 max_depth = -1 #IntegerRangeHyperParameter(-1, 30)
 boosting_type = 'gbdt' #DiscreteHyperParameter(['gbdt', 'dart'])  # Early stopping doesn't work with dart
-objective = DiscreteHyperParameter(['regression', 'regression_l1'])  # Early stopping doesn't work with dart'regression',
+objective = DiscreteHyperParameter(['regression', 'regression_l1'])
 model = LightGBMWrapper
 base_args = tuple()
 base_kwargs = dict(model=LGBMRegressor,
