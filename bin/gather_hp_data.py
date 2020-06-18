@@ -75,8 +75,9 @@ def main():
                         except KeyError:
                             pass
                         try:
-                            experiment_data['model'] = metadata['model_config']['model']
-                            model_kwargs = metadata['model_config']['kwargs']
+                            model_config = metadata['hp_settings']['model_config']
+                            experiment_data['model'] = model_config['model']
+                            model_kwargs = model_config['model_kwargs']
                             for kwarg, value in model_kwargs.items():
                                 experiment_data[f'model_kwarg_{kwarg}'] = str(value)
                         except KeyError:
