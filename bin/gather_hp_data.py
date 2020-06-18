@@ -100,7 +100,7 @@ def main():
                                 experiment_data[k] = v
                     else:
                         continue  # Points without performance are useless
-                    fold_reference_times_path = experiment / 'fold_reference_times.npz'
+                    fold_reference_times_path = inner_fold_dir / 'fold_reference_times.npz'
                     if fold_reference_times_path.exists():
                         fold_reference_times = np.load(fold_reference_times_path)
                         training_reference_times = fold_reference_times['train']
