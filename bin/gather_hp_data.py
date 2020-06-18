@@ -67,11 +67,17 @@ def main():
                         nwp_model = get_nwp_model_from_path(site_dataset_path)
                         experiment_data['site_id'] = site_id
                         experiment_data['nwp_model'] = nwp_model
+                        experiment_data['model'] = metadata['model_metadata']['model']
                         try:
-                            experiment_data['model'] = metadata['model_metadata']['model']
                             model_kwargs = metadata['model_metadata']['kwargs']
                             for kwarg, value in model_kwargs.items():
                                 experiment_data[kwarg] = value
+                        except KeyError:
+                            pass
+                        try:
+                            model_kwargs = metadata['model_config']['kwargs']
+                            for kwarg, value in model_kwargs.items():
+                                experiment_data[kwarg] = str(value)
                         except KeyError:
                             pass
                     best_model_path = experiment / 'best_model'
