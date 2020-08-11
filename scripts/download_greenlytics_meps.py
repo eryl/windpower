@@ -10,10 +10,6 @@ DEFAULT_VARIABLES = [
     "y_wind_10m",
     "x_wind_z",
     "y_wind_z",
-    "air_pressure_at_sea_level",
-    "air_temperature_0m",
-    "air_temperature_2m",
-    "air_temperature_z",
 ]
 
 def main():

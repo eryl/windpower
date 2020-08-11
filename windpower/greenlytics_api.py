@@ -10,6 +10,7 @@ from tqdm import trange, tqdm
 
 
 GREENLYTICS_ENDPOINT_URL = "https://api.greenlytics.io/weather/v1/get_nwp"
+MODELS = ["DWD_ICON-EU", "FMI_HIRLAM", "NCEP_GFS"]
 VALID_VARIABLES = {
     "DWD_ICON-EU": [
         "T",
@@ -64,7 +65,6 @@ VALID_VARIABLES = {
         "SurfaceLatentHeatNetFluxAvg",
         "SurfaceSensibleHeatNetFluxAvg",
     ],
-
     "MetNo_MEPS": [
         "x_wind_10m",
         "y_wind_10m",
@@ -85,6 +85,43 @@ VALID_VARIABLES = {
     ],
 }
 
+DEFAULT_VARIABLES = {
+    "DWD_ICON-EU": [
+        "T",
+        "U",
+        "V",
+    ],
+    "FMI_HIRLAM": [
+        "Temperature",
+        "WindUMS",
+        "WindVMS",
+    ],
+    "NCEP_GFS": [
+        "WindUMS_Height",
+        "WindVMS_Height",
+        "Temperature_Height",
+    ],
+    "MetNo_MEPS": [
+        "x_wind_10m",
+        "y_wind_10m",
+        "x_wind_z",
+        "y_wind_z",
+    ],
+}
+
+MODEL_BASE_FREQUENCY = {
+    "DWD_ICON-EU": 3,
+    "FMI_HIRLAM": 6,
+    "NCEP_GFS": 6,
+    "MetNo_MEPS": 6,
+}
+
+MODEL_START_DATES = {
+ "DWD_ICON-EU": datetime.datetime(2019, 3, 5, 9),
+    "FMI_HIRLAM": datetime.datetime(2019, 6, 24, 6),
+    "NCEP_GFS": datetime.datetime(2019, 6, 24, 6),
+    "MetNo_MEPS": datetime.datetime(2018, 10, 1, 0),
+}
 
 def check_params(model, variables, freq):
     """Check that the chosen variables and frequency is ok for the selected model"""
@@ -103,16 +140,11 @@ def check_params(model, variables, freq):
 
 
 def earliest_start_date(model):
-    if model == "DWD_ICON-EU":
-        return datetime.datetime(2019, 3, 5, 9)
-    elif model == "FMI_HIRLAM":
-        return datetime.datetime(2019, 6, 24, 6)
-    elif model == "NCEP_GFS":
-        return datetime.datetime(2019, 6, 24, 6)
-    elif model == "MetNo_MEPS":
-        return datetime.datetime(2018, 10, 1, 0)
-    else:
+    try:
+        return MODEL_START_DATES[model]
+    except KeyError:
         raise ValueError(f"No such model {model}")
+
 
 def download_coords(dest, coordinates, model, variables, api_key,
                     start_date=None, end_date=None, freq=6,
@@ -186,14 +218,14 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         print("Making request with params: {}".format(json.dumps(params)))
 
         request_params = {'query_params': json.dumps(params)}
-        #print(f"Headers: {headers}\nParams: {request_params}")
+        print(f"Headers: {headers}\nParams: {request_params}")
         req = requests.Request('GET', GREENLYTICS_ENDPOINT_URL, headers=headers, params=request_params).prepare()
-        # print('{}\n{}\r\n{}\r\n\r\n{}'.format(
-        #     '-----------START-----------',
-        #     req.method + ' ' + req.url,
-        #     '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
-        #     req.body,
-        # ))
+        print('{}\n{}\r\n{}\r\n\r\n{}'.format(
+            '-----------START-----------',
+            req.method + ' ' + req.url,
+            '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
+            req.body,
+        ))
         s = requests.Session()
         response = s.send(req)
         response.raise_for_status()
@@ -202,6 +234,18 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
         ds['valid_time'] = ds['valid_time'].astype(np.int32)
         ds.attrs['nwp_model'] = model
+        response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
+        response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
+        if abs(request_start - response_start_date) > datetime.timedelta(days=1):
+            print(f"Response and request times differ by more than a day: "
+                  f"request_start: {request_start}, response_start: {response_start_date}. "
+                  f"Request_end: {request_end}, response end: {response_end_date}."
+                  f"Request params: {request_params}")
+
+        # We update the filename with the actual datetime in the dataset
+        file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
+                                                       response_start_date.strftime(time_format),
+                                                       response_end_date.strftime(time_format))
         ds.to_netcdf(file_name)
         request_start = request_end
 
