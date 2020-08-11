@@ -182,7 +182,8 @@ def get_reference_time(site_dataset_path: Path):
 
 
 
-def k_fold_split_reference_times(forecast_times, k, padding):
+def old_k_fold_split_reference_times(forecast_times, k, padding):
+
     fold_intervals = split_datetimes(forecast_times, k, padding)
 
     for i in range(len(fold_intervals)):
@@ -200,6 +201,27 @@ def k_fold_split_reference_times(forecast_times, k, padding):
 
         remainder_times = np.concatenate(remainder_folds)
         yield fold_times, remainder_times
+
+
+def k_fold_split_reference_times(forecast_times, k, padding):
+    forecast_times = np.sort(forecast_times)
+    # This method will not necessarily give equal sized folds if there are holes in the timeline
+    times_per_forecast = len(forecast_times) // k
+    padding_dt = np.timedelta64(padding, 'h')
+    for i in range(k):
+        fold_times = forecast_times[i*times_per_forecast : (i+1)*times_per_forecast]
+        # since the times are sorted we can take the first and last as start time and end time
+        fold_start_time = fold_times[0]
+        fold_end_time = fold_times[-1]
+        remainder_times_before = [t for t in forecast_times[:i*times_per_forecast]
+                                  if t <= fold_start_time - padding_dt]
+        remainder_times_after = [t for t in forecast_times[(i+1)*times_per_forecast:]
+                                 if t >= fold_end_time + padding_dt]
+        remainder_times = np.array(remainder_times_before+remainder_times_after)
+        if len(fold_times) < 1 or len(remainder_times) < 1:
+            raise RuntimeError("Intervals can not be separated, padding is too large (likely dataset is too small)")
+        yield fold_times, remainder_times
+
 
 
 class SiteDataset(object):
