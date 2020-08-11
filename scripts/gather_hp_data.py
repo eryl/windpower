@@ -50,10 +50,11 @@ def main():
                     fold_id, = m.groups()
                     inner_fold_id = int(fold_id)
 
+                settings_experiment_dir = best_inner_setting_dir/ 'latest_experiment'
                 try:
-                    experiment_data = gather_experiment_data(best_inner_setting_dir)
+                    experiment_data = gather_experiment_data(settings_experiment_dir)
                 except FileNotFoundError as e:
-                    print(f"Missing files for experiment {best_inner_setting_dir}, error {e}")
+                    print(f"Missing files for experiment {settings_experiment_dir}, error {e}")
                     continue
 
                 experiment_data['outer_fold_id'] = outer_fold_id
@@ -88,7 +89,7 @@ def main():
             fieldnames.update(experiment_data.keys())
 
         fieldnames = list(sorted(fieldnames))
-        with open(args.output / performance_name, 'w') as out_fp:
+        with open(args.output_dir / performance_name, 'w') as out_fp:
             csv_writer = DictWriter(out_fp, fieldnames=fieldnames)
             csv_writer.writeheader()
             csv_writer.writerows(experiments)
