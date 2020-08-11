@@ -125,7 +125,7 @@ def train(*, site_files,
                                                    training_dataset=train_dataset,
                                                    evaluation_dataset=validation_dataset,
                                                    metadata=train_metadata,
-                                                   artifacts={'settings.pkl': settings},
+                                                   artifacts={'settings': settings},
                                                    training_config=training_config.train_kwargs)
 
         for i, (test_reference_times, train_reference_time) in tqdm(
@@ -192,7 +192,7 @@ def evaluate_model(test_reference_times,
                    best_inner_models_eval_dir: Path):
     best_inner_model_dir = best_inner_model_path.parent
     shutil.copytree(best_inner_model_dir, best_inner_models_eval_dir)
-    with open(best_inner_model_dir / 'settings.pkl', 'rb') as fp:
+    with open(best_inner_model_dir / 'artifacts' / 'settings.pkl', 'rb') as fp:
         settings = pickle.load(fp)
     with open(best_inner_model_dir / 'metadata.json') as fp:
         metadata = json.load(fp)
