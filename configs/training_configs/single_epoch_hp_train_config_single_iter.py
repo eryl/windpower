@@ -7,7 +7,7 @@ outer_xval_loops = None
 inner_folds = 10
 inner_xval_loops = None
 hp_search_iterations = 1
-fold_padding = 42
+fold_padding = 54
 train_kwargs = mltrain.train.TrainingConfig(max_epochs=1, keep_snapshots=False)
 
 training_config = TrainConfig(outer_folds=outer_folds,
