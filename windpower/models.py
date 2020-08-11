@@ -7,7 +7,7 @@ import sklearn.metrics
 from sklearn.decomposition import PCA
 
 from mltrain.performance import LowerIsBetterMetric, HigherIsBetterMetric
-from mltrain.train import BaseModel
+from mltrain.train import FullbatchModel
 
 from windpower.dataset import VariableType
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ class ModelConfig(object):
     model_args: Sequence
     model_kwargs: Mapping
 
-class SklearnWrapper(BaseModel):
+class SklearnWrapper(FullbatchModel):
     def __init__(self, *args, model, clip_predictions=True, scaling=False, decorrelate=False,
                  training_dataset=None, validation_dataset=None, **kwargs):
         self.model = model(*args, **kwargs)
@@ -69,16 +69,16 @@ class SklearnWrapper(BaseModel):
             x = self.pca.transform(x)
         return x
 
-    def fit(self, batch):
-        x = batch['x']
-        y = batch['y']
-        variable_info = batch.get('variable_info', None)
+    def fit_dataset(self, dataset):
+        x = dataset['x']
+        y = dataset['y']
+        variable_info = dataset.get('variable_info', None)
         x = self.fit_normalizer(x, variable_info)
         self.model.fit(x, y)
 
-    def evaluate(self, batch):
-        x = batch['x']
-        y = batch['y']
+    def evaluate_dataset(self, dataset):
+        x = dataset['x']
+        y = dataset['y']
         x = self.normalize_data(x)
         y_hats = self.model.predict(x)
         if self.clip_predictions:
@@ -122,7 +122,7 @@ class LightGBMWrapper(SklearnWrapper):
         self.early_stopping_rounds = early_stopping_rounds
         self.eval_metric = eval_metric
 
-    def fit(self, batch):
+    def fit_dataset(self, batch):
         x = batch['x']
         y = batch['y']
         variable_info = batch.get('variable_info', None)
@@ -142,8 +142,12 @@ class LightGBMWrapper(SklearnWrapper):
                               clip_predictions=self.clip_predictions,
                               decorrelate=self.decorrelate,
                               args=self.args,
-                              kwargs=self.kwargs,
-                              best_iteration=self.model.best_iteration_)
+                              kwargs=self.kwargs)
+        try:
+            best_iteration = self.model.best_iteration_
+            model_metadata['best_iteration'] = best_iteration
+        except sklearn.exceptions.NotFittedError:
+            pass
 
         return model_metadata
 

@@ -118,8 +118,8 @@ def train(*, site_files,
                                training_dataset=train_dataset,
                                validation_dataset=validation_dataset,
                                **settings.model_config.model_kwargs)
-            train_dataset = [train_dataset[:]]  # The training script assumes the dataset is an iterator over mini-batches. We but all the data in a single batch
-            validation_dataset = [validation_dataset[:]]
+            train_dataset = train_dataset[:]  # The training script assumes the dataset is an iterator over mini-batches. We but all the data in a single batch
+            validation_dataset = validation_dataset[:]
             return mltrain.train.TrainingArguments(model=model,
                                                    output_dir=settings.output_dir,
                                                    training_dataset=train_dataset,
