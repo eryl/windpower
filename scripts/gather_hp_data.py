@@ -7,6 +7,7 @@ import numpy as np
 from csv import DictWriter, DictReader
 from windpower.dataset import get_nwp_model_from_path, get_site_id
 import mltrain.train
+from tqdm import tqdm
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize hyper parameter performance data to a csv ")
@@ -19,7 +20,7 @@ def main():
     outer_best_settings = []  # Performance on outer folds with retrained model on best settings from inner fold
 
     for d in args.experiment_directories:
-        for outer_fold_dir in d.glob('**/outer_fold_*'):
+        for outer_fold_dir in tqdm(d.glob('**/outer_fold_*'), desc="Outer folds"):
             m = re.match(r'outer_fold_(\d+)', outer_fold_dir.name)
             outer_fold_id = None
             if m is not None:
@@ -27,7 +28,7 @@ def main():
                 outer_fold_id = int(fold_id)
 
             # Check the best inner models performance on this outer fold
-            for best_inner_model_dir in outer_fold_dir.glob('best_inner_model_*'):
+            for best_inner_model_dir in tqdm(outer_fold_dir.glob('best_inner_model_*'), desc="Best inner model"):
                 m = re.match(r'best_inner_model_(\d+)', best_inner_model_dir.name)
                 inner_fold_id = None
                 if m is not None:
@@ -43,7 +44,7 @@ def main():
                 outer_best_model.append(experiment_data)
 
             # Check the best inner models performance on this outer fold
-            for best_inner_setting_dir in outer_fold_dir.glob('best_inner_setting_*'):
+            for best_inner_setting_dir in tqdm(outer_fold_dir.glob('best_inner_setting_*'), desc="Best inner settings"):
                 m = re.match(r'best_inner_setting_(\d+)', best_inner_setting_dir.name)
                 inner_fold_id = None
                 if m is not None:
@@ -62,7 +63,7 @@ def main():
                 outer_best_settings.append(experiment_data)
 
             # Check all the inner folds
-            for inner_fold_dir in outer_fold_dir.glob('inner_fold_*'):
+            for inner_fold_dir in tqdm(outer_fold_dir.glob('inner_fold_*'), desc='Inner fold'):
                 m = re.match(r'inner_fold_(\d+)', inner_fold_dir.name)
                 inner_fold_id = None
                 if m is not None:
@@ -70,7 +71,7 @@ def main():
                     inner_fold_id = int(fold_id)
 
                 # Only check inner folds whose names starts with 20, to select only timestamps and not other directories
-                for experiment in inner_fold_dir.glob('20*'):
+                for experiment in tqdm(inner_fold_dir.glob('20*'), desc='Inner fold experiment'):
                     try:
                         experiment_data = gather_experiment_data(experiment)
                     except FileNotFoundError as e:
