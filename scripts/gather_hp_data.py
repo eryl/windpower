@@ -33,7 +33,11 @@ def main():
                 if m is not None:
                     fold_id, = m.groups()
                     inner_fold_id = int(fold_id)
-                experiment_data = gather_experiment_data(best_inner_model_dir)
+                try:
+                    experiment_data = gather_experiment_data(best_inner_model_dir)
+                except FileNotFoundError as e:
+                    print(f"Missing files for experiment {best_inner_model_dir}, error {e}")
+                    continue
                 experiment_data['outer_fold_id'] = outer_fold_id
                 experiment_data['inner_fold_id'] = inner_fold_id
                 outer_best_model.append(experiment_data)
@@ -45,7 +49,13 @@ def main():
                 if m is not None:
                     fold_id, = m.groups()
                     inner_fold_id = int(fold_id)
-                experiment_data = gather_experiment_data(best_inner_setting_dir)
+
+                try:
+                    experiment_data = gather_experiment_data(best_inner_setting_dir)
+                except FileNotFoundError as e:
+                    print(f"Missing files for experiment {best_inner_setting_dir}, error {e}")
+                    continue
+
                 experiment_data['outer_fold_id'] = outer_fold_id
                 experiment_data['inner_fold_id'] = inner_fold_id
                 outer_best_settings.append(experiment_data)
@@ -62,7 +72,7 @@ def main():
                 for experiment in inner_fold_dir.glob('20*'):
                     try:
                         experiment_data = gather_experiment_data(experiment)
-                    except FileExistsError as e:
+                    except FileNotFoundError as e:
                         print(f"Missing files for experiment {experiment}, error {e}")
                         continue
                     experiment_data['outer_fold_id'] = outer_fold_id
@@ -139,7 +149,7 @@ def gather_experiment_data(experiment):
             for k, v in best_performance.items():
                 experiment_data[k] = v
     else:
-        raise FileExistsError("No performance data found")
+        raise FileNotFoundError("No performance data found")
 
     fold_reference_times_path = experiment.parent / 'fold_reference_times.npz'
     if fold_reference_times_path.exists():
