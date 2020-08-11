@@ -11,7 +11,7 @@ import mltrain.train
 def main():
     parser = argparse.ArgumentParser(description="Summarize hyper parameter performance data to a csv ")
     parser.add_argument('experiment_directories', help="Scan these directories for experiments", type=Path, nargs='+')
-    parser.add_argument('output', type=Path)
+    parser.add_argument('--output-dir', type=Path, default=Path())
     args = parser.parse_args()
 
     inner_fold_experiments = []   # Performance on inner folds
