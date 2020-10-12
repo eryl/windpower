@@ -279,20 +279,20 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
 
         print("Making request with params: {}".format(json.dumps(params)))
 
-        request_params = {'query_params': json.dumps(params)}
-        print(f"Headers: {headers}\nParams: {request_params}")
-        req = requests.Request('GET', GREENLYTICS_ENDPOINT_URL, headers=headers, params=request_params).prepare()
-        print('{}\n{}\r\n{}\r\n\r\n{}'.format(
-            '-----------START-----------',
-            req.method + ' ' + req.url,
-            '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
-            req.body,
-        ))
-        s = requests.Session()
-        response = s.send(req)
-        # response = requests.post(GREENLYTICS_ENDPOINT_URL,
-        #                          headers=headers,
-        #                          json={'query_params': params})
+        # request_params = {'query_params': json.dumps(params)}
+        # print(f"Headers: {headers}\nParams: {request_params}")
+        # req = requests.Request('GET', GREENLYTICS_ENDPOINT_URL, headers=headers, params=request_params).prepare()
+        # print('{}\n{}\r\n{}\r\n\r\n{}'.format(
+        #     '-----------START-----------',
+        #     req.method + ' ' + req.url,
+        #     '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
+        #     req.body,
+        # ))
+        # s = requests.Session()
+        # response = s.send(req)
+        response = requests.post(GREENLYTICS_ENDPOINT_URL,
+                                  headers=headers,
+                                  json={'query_params': params}, content_type='application/json')
         response.raise_for_status()
         if output_format == 'json_xarray':
             ds = xa.Dataset.from_dict(json.loads(response.text))
