@@ -220,6 +220,31 @@ def download_coords(dest, coordinates, model, variables, api_key,
                       freq=freq, ref_times_per_request=ref_times_per_request,
                       rate_limit=rate_limit, overwrite=overwrite)
 
+def get_missing_ref_times(dest, coords_pattern, start_date: datetime.datetime, end_date: datetime.datetime, freq_dt: datetime.timedelta, overlap=0.99):
+    coords_files = list(dest.glob(coords_pattern + '*'))
+
+    target_ref_times = set()
+    ref_time = start_date
+    while ref_time < end_date:
+        target_ref_times.add(ref_time)
+        ref_time += freq_dt
+
+    epoch = np.datetime64('1970-01-01T00:00:00Z')
+    np_s = np.timedelta64(1, 's')
+
+    existing_ref_times = set()
+    for coord_file in coords_files:
+        with xa.open_dataset(coord_file) as ds:
+            ref_times = ds['reference_time'].values
+            timestamps = (ref_times - epoch) / np_s
+            existing_ref_times.update([datetime.datetime.utcfromtimestamp(ts) for ts in timestamps])
+
+    return target_ref_times - existing_ref_times
+
+
+
+
+
 
 def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_request=1e5, freq=6, rate_limit=60,
                   start_date=None, end_date=None, overwrite=False, use_direct_url=False):
@@ -230,7 +255,7 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
     headers = {"Authorization": api_key}
     base_params = {
         'model': model,
-        'coords': {'latitude': [lat], 'longitude': [lon]},
+        'coords': {'latitude': [lat], 'longitude': [lon], 'valid_time': list(range(0, 48))},
         'variables': variables,
         #'freq': '{}H'.format(freq),
         # 'as_dataframe': True,
@@ -242,6 +267,13 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
     n_ref_times = (end_date - start_date)//frequency
     dest.mkdir(parents=True, exist_ok=True)
     time_format = '%Y-%m-%d %H'
+    coords_filename_part = f'{model}_{lat},{lon}'
+
+
+    missing_ref_times = get_missing_ref_times(dest, coords_filename_part, start_date, end_date, frequency)
+    if len(missing_ref_times)/n_ref_times < 0.05:
+        print(f'Missing reference times is less than 5%, skipping (lat, lon): {lat}, {lon}')
+        return
 
     n_requests = int(np.ceil(n_ref_times / ref_times_per_request))
 
@@ -261,8 +293,6 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
                                                        request_start.strftime(time_format),
                                                        request_end.strftime(time_format))
-        if file_name.exists() and not overwrite:
-            continue
 
         #print(json.dumps(params, indent=2, sort_keys=True))
         dt = time.time() - tm1
@@ -292,8 +322,12 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         # response = s.send(req)
         response = requests.post(GREENLYTICS_ENDPOINT_URL,
                                   headers=headers,
-                                  json={'query_params': params}, content_type='application/json')
-        response.raise_for_status()
+                                  json={'query_params': params})#, content_type='application/json')
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            print(f"Reguest header: {headers}, params: {params}")
+            raise e
         if output_format == 'json_xarray':
             ds = xa.Dataset.from_dict(json.loads(response.text))
         else:
