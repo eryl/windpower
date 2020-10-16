@@ -186,7 +186,8 @@ def earliest_start_date(model):
 
 def download_coords(dest, coordinates, model, variables, api_key,
                     start_date=None, end_date=None, freq=None,
-                    ref_times_per_request=1e5, rate_limit=5, overwrite=False):
+                    ref_times_per_request=1e5, rate_limit=5, overwrite=False,
+                    coords_per_chunk=70):
     # Set up default values
     if not variables:
         variables = DEFAULT_VARIABLES[model]
@@ -212,13 +213,22 @@ def download_coords(dest, coordinates, model, variables, api_key,
         end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
     check_params(model, variables, freq, start_date)
-    for coord_dict in tqdm(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])), desc='Coordinate'):
-        lat = coord_dict['latitude']
-        lon = coord_dict['longitude']
-        download_data(dest, api_key, model, variables, lat, lon,
+    coord_chunks = []
+    sorted_coords = list(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])))
+    n_coord_chunks = int(np.ceil(len(coordinates)/coords_per_chunk))
+    for i in range(n_coord_chunks):
+        start_coord = i*coords_per_chunk
+        end_coord = start_coord + coords_per_chunk
+        coord_chunks.append(sorted_coords[start_coord:end_coord])
+
+    for coord_chunk in tqdm(coord_chunks, desc='Coordinates'):
+        lats = [coord_dict['latitude'] for coord_dict in coord_chunk]
+        lons = [coord_dict['longitude'] for coord_dict in coord_chunk]
+        download_data(dest, api_key, model, variables, lats, lons,
                       start_date=start_date, end_date=end_date,
                       freq=freq, ref_times_per_request=ref_times_per_request,
                       rate_limit=rate_limit, overwrite=overwrite)
+
 
 def get_missing_ref_times(dest, coords_pattern, start_date: datetime.datetime, end_date: datetime.datetime, freq_dt: datetime.timedelta, overlap=0.99):
     coords_files = list(dest.glob(coords_pattern + '*'))
@@ -246,7 +256,7 @@ def get_missing_ref_times(dest, coords_pattern, start_date: datetime.datetime, e
 
 
 
-def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_request=1e5, freq=6, rate_limit=60,
+def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_request=1e5, freq=6, rate_limit=60,
                   start_date=None, end_date=None, overwrite=False, use_direct_url=False):
     if use_direct_url:
         output_format = 'netcdf_url'
@@ -255,7 +265,8 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
     headers = {"Authorization": api_key}
     base_params = {
         'model': model,
-        'coords': {'latitude': [lat], 'longitude': [lon], 'valid_time': list(range(0, 48))},
+        'type': 'points',
+        'coords': {'latitude': lats, 'longitude': lons, 'valid_time': list(range(0, 48))},
         'variables': variables,
         #'freq': '{}H'.format(freq),
         # 'as_dataframe': True,
@@ -267,13 +278,13 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
     n_ref_times = (end_date - start_date)//frequency
     dest.mkdir(parents=True, exist_ok=True)
     time_format = '%Y-%m-%d %H'
-    coords_filename_part = f'{model}_{lat},{lon}'
+    #coords_filename_part = f'{model}_{lat},{lon}'
 
 
-    missing_ref_times = get_missing_ref_times(dest, coords_filename_part, start_date, end_date, frequency)
-    if len(missing_ref_times)/n_ref_times < 0.05:
-        print(f'Missing reference times is less than 5%, skipping (lat, lon): {lat}, {lon}')
-        return
+    #missing_ref_times = get_missing_ref_times(dest, coords_filename_part, start_date, end_date, frequency)
+    # if len(missing_ref_times)/n_ref_times < 0.05:
+    #     print(f'Missing reference times is less than 5%, skipping (lat, lon): {lat}, {lon}')
+    #     return
 
     n_requests = int(np.ceil(n_ref_times / ref_times_per_request))
 
@@ -289,10 +300,6 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         params.update(base_params)
         params['start_date'] = request_start.strftime(time_format)
         params['end_date'] = (request_end - datetime.timedelta(hours=freq)).strftime(time_format)
-
-        file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
-                                                       request_start.strftime(time_format),
-                                                       request_end.strftime(time_format))
 
         #print(json.dumps(params, indent=2, sort_keys=True))
         dt = time.time() - tm1
@@ -345,22 +352,28 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
                 ds = xa.open_dataset(tmp_file)
                 os.remove(tmp_file)
 
-        ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
-        ds['valid_time'] = ds['valid_time'].astype(np.int32)
-        ds.attrs['nwp_model'] = model
-        response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
-        response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
-        if abs(request_start - response_start_date) > datetime.timedelta(days=1):
-            print(f"Response and request times differ by more than a day: "
-                  f"request_start: {request_start}, response_start: {response_start_date}. "
-                  f"Request_end: {request_end}, response end: {response_end_date}."
-                  f"Request params: {request_params}")
+        for i, (lat,lon) in enumerate(zip(lats, lons)):
+            # We try to make sure the latitudes and longitudes in the dataset are the same
+            ds_lat = ds['latitude'][i]
+            ds_lon = ds['longitude'][i]
+            if abs(ds_lat - lat) > 0.01 or abs(ds_lon - lon) > 0.01:
+                print(f"Warning: Difference between lat,lon: {lat},{lon} and {ds_lat}, {ds_lon} is too great")
+            ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
+            ds['valid_time'] = ds['valid_time'].astype(np.int32)
+            ds.attrs['nwp_model'] = model
+            response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
+            response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
+            if abs(request_start - response_start_date) > datetime.timedelta(days=1):
+                print(f"Response and request times differ by more than a day: "
+                      f"request_start: {request_start}, response_start: {response_start_date}. "
+                      f"Request_end: {request_end}, response end: {response_end_date}."
+                      f"Request params: {params}")
 
-        # We update the filename with the actual datetime in the dataset
-        file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
-                                                       response_start_date.strftime(time_format),
-                                                       response_end_date.strftime(time_format))
-        ds.to_netcdf(file_name)
+            # We update the filename with the actual datetime in the dataset
+            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
+                                                           response_start_date.strftime(time_format),
+                                                           response_end_date.strftime(time_format))
+            ds.to_netcdf(file_name)
         request_start = request_end
 
 
@@ -371,7 +384,7 @@ def parse_filename(f):
             'start_date', 'end_date' are also present.
     """
     coord_fmt = r"\d+\.\d+"
-    model_fmt = r"DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP"
+    model_fmt = r"DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF"
     date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
     date_pattern = r"({})_({}),({})_({})--({}).nc".format(model_fmt, coord_fmt, coord_fmt, date_fmt, date_fmt)
     nondate_pattern = r"({})_({}),({}).nc".format(model_fmt, coord_fmt, coord_fmt)
