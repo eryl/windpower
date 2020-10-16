@@ -3,9 +3,9 @@ import numpy as np
 import argparse
 from pathlib import Path
 from tqdm import tqdm
-#import multiprocessing
+import multiprocessing
 import functools
-import multiprocessing.dummy as multiprocessing
+#import multiprocessing.dummy as multiprocessing
 
 from windpower.dataset import get_nwp_model_from_path
 
@@ -51,6 +51,11 @@ def process_dataset(f, output_dir=None, overwrite=False):
             do_write = True
         if 'ncep_phi' not in ds.variables:
             ds['ncep_r'], ds['ncep_phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
+            do_write = True
+    elif nwp_model == 'ECMWF_EPS-CF':
+        if 'phi_10' not in ds.variables:
+            ds['r_10'], ds['phi_10'] = polar_windspeed(ds, 'u10', 'v10')
+            ds['r_100'], ds['phi_100'] = polar_windspeed(ds, 'u100', 'v100')
             do_write = True
     if do_write:
         if output_dir is not None:
