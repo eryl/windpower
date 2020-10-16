@@ -155,7 +155,7 @@ def get_nwp_model(dataset, dataset_path):
 def get_nwp_model_from_path(dataset_path):
     import re
     #pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP).*.nc')
+    pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF).*.nc')
     m = re.match(pattern, dataset_path.name)
     if m is not None:
         (model,) = m.groups()
@@ -167,7 +167,7 @@ def get_nwp_model_from_path(dataset_path):
 def get_site_id(dataset_path: Path):
     import re
     # pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    pattern = re.compile(r'(\d+)_(DWD_NCEP|DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc')
+    pattern = re.compile(r'(\d+)_(DWD_NCEP|DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|ECMWF_EPS-CF).nc')
     m = re.match(pattern, dataset_path.name)
     if m is not None:
         site_id, model, = m.groups()
