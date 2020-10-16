@@ -1,5 +1,7 @@
+import os
 import re
 import datetime
+import tempfile
 import time
 import json
 
@@ -10,7 +12,7 @@ from tqdm import trange, tqdm
 
 
 GREENLYTICS_ENDPOINT_URL = "https://api.greenlytics.io/weather/v1/get_nwp"
-MODELS = ["DWD_ICON-EU", "FMI_HIRLAM", "NCEP_GFS"]
+MODELS = ["DWD_ICON-EU", "FMI_HIRLAM", "NCEP_GFS", "MetNo_MEPS", "ECMWF_EPS-CF"]
 VALID_VARIABLES = {
     "DWD_ICON-EU": [
         "T",
@@ -83,6 +85,27 @@ VALID_VARIABLES = {
         "integral_of_rainfall_amount_wrt_time",
         "integral_of_surface_net_downward_shortwave_flux_wrt_time",
     ],
+    "ECMWF_EPS-CF": [
+        "u10", # U-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
+        "v10", # V-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
+        "u100", # U-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
+        "v100", # V-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
+        "u200", # U-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
+        "v200", # V-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
+        "i10fg", # Instantaneous wind gusts in meters per second (m.s-1) at 10 meters above the surface (GRIB variable documentation)
+        "t2m", # Temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
+        "d2m", # Dewpoint temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
+        "tav300", # Average potential temperature in degrees Celsius (°C) in the upper 300m (GRIB variable documentation)
+        "msl", # Mean sea level pressure in Pascals (Pa) (GRIB variable documentation)
+        "tcc", # Total cloud cover in proportion (0-1) (GRIB variable documentation)
+        "lcc", # Low cloud cover in proportion (0-1) (GRIB variable documentation)
+        "mcc", # Medium cloud cover in proportion (0-1) (GRIB variable documentation)
+        "hcc", # High cloud cover in proportion (0-1) (GRIB variable documentation)
+        "dsrp", # Direct solar radiation in Joules per square meter (J.m-2) (GRIB variable documentation)
+        "uvb", # Downward UV radiation in Joules per square meter (J.m-2) at the surface (GRIB variable documentation)
+        "tp", # Total precipitation in meters (m) (GRIB variable documentation)
+        "ilspf", # Instantaneous large-scale surface precipitation fraction (GRIB variable documentation)
+    ]
 }
 
 DEFAULT_VARIABLES = {
@@ -107,6 +130,16 @@ DEFAULT_VARIABLES = {
         "x_wind_z",
         "y_wind_z",
     ],
+    "ECMWF_EPS-CF": [
+        "u10",
+        "v10",
+        "u100",
+        "v100",
+        #"u200",
+        #"v200",
+        "i10fg",
+        "t2m",
+    ]
 }
 
 MODEL_BASE_FREQUENCY = {
@@ -114,21 +147,22 @@ MODEL_BASE_FREQUENCY = {
     "FMI_HIRLAM": 6,
     "NCEP_GFS": 6,
     "MetNo_MEPS": 6,
+    "ECMWF_EPS-CF": 6
 }
 
 MODEL_START_DATES = {
- "DWD_ICON-EU": datetime.datetime(2019, 3, 5, 9),
+    "DWD_ICON-EU": datetime.datetime(2019, 3, 5, 12),
     "FMI_HIRLAM": datetime.datetime(2019, 6, 24, 6),
     "NCEP_GFS": datetime.datetime(2019, 6, 24, 6),
     "MetNo_MEPS": datetime.datetime(2018, 10, 1, 0),
+    "ECMWF_EPS-CF": datetime.datetime(1992, 11, 24, 12),
 }
 
-def check_params(model, variables, freq):
+def check_params(model, variables, freq, start_date):
     """Check that the chosen variables and frequency is ok for the selected model"""
-    if model == "DWD_ICON-EU" and freq % 3 != 0:
-        raise ValueError(f"Invalid frequency for {model}, frequency should be a multiple of 3.")
-    elif (model == "NCEP_GFS" or model == "FMI_HIRLAM" or model == "MetNo_MEPS") and freq % 6 != 0:
-        raise ValueError(f"Invalid frequency for {model}, frequency should be a multiple of 6.")
+    base_freq = MODEL_BASE_FREQUENCY[model]
+    if freq % base_freq != 0:
+        raise ValueError(f"Invalid frequency for {model}, frequency should be a multiple of {base_freq}.")
 
     model_valid_variables = VALID_VARIABLES[model]
     for var in variables:
@@ -137,6 +171,10 @@ def check_params(model, variables, freq):
             invalid_variables.append(var)
         if invalid_variables:
             raise ValueError(f"Invalid variables for {model}: {invalid_variables}")
+
+    if start_date < MODEL_START_DATES[model]:
+        raise ValueError(f"Invalid start date {start_date} for model {model}, "
+                         f"earliest possible date is {MODEL_START_DATES[model]}")
 
 
 def earliest_start_date(model):
@@ -147,44 +185,106 @@ def earliest_start_date(model):
 
 
 def download_coords(dest, coordinates, model, variables, api_key,
-                    start_date=None, end_date=None, freq=6,
-                    ref_times_per_request=1e5, rate_limit=5, overwrite=False):
+                    start_date=None, end_date=None, freq=None,
+                    ref_times_per_request=1e5, rate_limit=5, overwrite=False,
+                    coords_per_chunk=70):
+    # Set up default values
+    if not variables:
+        variables = DEFAULT_VARIABLES[model]
+        print(f"No variables specified. Using default variables {variables}.")
+    if not freq:
+        freq = MODEL_BASE_FREQUENCY[model]
 
-    if start_date is not None and not isinstance(start_date, datetime.datetime):
-        start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-    if end_date is not None and not isinstance(end_date, datetime.datetime):
+    if start_date is None:
+        start_date = earliest_start_date(model)
+    elif not isinstance(start_date, datetime.datetime):
+        try:
+            start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+        except ValueError:
+            start_date = datetime.datetime.strptime(start_date, '%Y-%m-%dT%H')
+        min_start_date = earliest_start_date(model)
+        if start_date < min_start_date:
+            print(f"Invalid earliest start date for {model}, setting {start_date} to {min_start_date}")
+            start_date = min_start_date
+
+    if end_date is None:
+        end_date = datetime.datetime.now()
+    elif not isinstance(end_date, datetime.datetime):
         end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-    check_params(model, variables, freq)
-    for coord_dict in tqdm(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])), desc='Coordinate'):
-        lat = coord_dict['latitude']
-        lon = coord_dict['longitude']
-        download_data(dest, api_key, model, variables, lat, lon,
+    check_params(model, variables, freq, start_date)
+    coord_chunks = []
+    sorted_coords = list(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])))
+    n_coord_chunks = int(np.ceil(len(coordinates)/coords_per_chunk))
+    for i in range(n_coord_chunks):
+        start_coord = i*coords_per_chunk
+        end_coord = start_coord + coords_per_chunk
+        coord_chunks.append(sorted_coords[start_coord:end_coord])
+
+    for coord_chunk in tqdm(coord_chunks, desc='Coordinates'):
+        lats = [coord_dict['latitude'] for coord_dict in coord_chunk]
+        lons = [coord_dict['longitude'] for coord_dict in coord_chunk]
+        download_data(dest, api_key, model, variables, lats, lons,
                       start_date=start_date, end_date=end_date,
                       freq=freq, ref_times_per_request=ref_times_per_request,
                       rate_limit=rate_limit, overwrite=overwrite)
 
-def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_request=1e4, freq=6, rate_limit=5,
-                  start_date=None, end_date=None, overwrite=False):
-    if start_date is None:
-        start_date = earliest_start_date(model)
-    if end_date is None:
-        end_date = datetime.datetime.now()
 
+def get_missing_ref_times(dest, coords_pattern, start_date: datetime.datetime, end_date: datetime.datetime, freq_dt: datetime.timedelta, overlap=0.99):
+    coords_files = list(dest.glob(coords_pattern + '*'))
+
+    target_ref_times = set()
+    ref_time = start_date
+    while ref_time < end_date:
+        target_ref_times.add(ref_time)
+        ref_time += freq_dt
+
+    epoch = np.datetime64('1970-01-01T00:00:00Z')
+    np_s = np.timedelta64(1, 's')
+
+    existing_ref_times = set()
+    for coord_file in coords_files:
+        with xa.open_dataset(coord_file) as ds:
+            ref_times = ds['reference_time'].values
+            timestamps = (ref_times - epoch) / np_s
+            existing_ref_times.update([datetime.datetime.utcfromtimestamp(ts) for ts in timestamps])
+
+    return target_ref_times - existing_ref_times
+
+
+
+
+
+
+def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_request=1e5, freq=6, rate_limit=60,
+                  start_date=None, end_date=None, overwrite=False, use_direct_url=False):
+    if use_direct_url:
+        output_format = 'netcdf_url'
+    else:
+        output_format = 'json_xarray'
     headers = {"Authorization": api_key}
     base_params = {
         'model': model,
-        'coords': {'latitude': [lat], 'longitude': [lon]},
+        'type': 'points',
+        'coords': {'latitude': lats, 'longitude': lons, 'valid_time': list(range(0, 48))},
         'variables': variables,
-        'freq': '{}H'.format(freq),
+        #'freq': '{}H'.format(freq),
         # 'as_dataframe': True,
-        'as_dataframe': False,
+        # 'as_dataframe': False,
+        'output_format': output_format
     }
 
     frequency = datetime.timedelta(hours=freq)
     n_ref_times = (end_date - start_date)//frequency
     dest.mkdir(parents=True, exist_ok=True)
     time_format = '%Y-%m-%d %H'
+    #coords_filename_part = f'{model}_{lat},{lon}'
+
+
+    #missing_ref_times = get_missing_ref_times(dest, coords_filename_part, start_date, end_date, frequency)
+    # if len(missing_ref_times)/n_ref_times < 0.05:
+    #     print(f'Missing reference times is less than 5%, skipping (lat, lon): {lat}, {lon}')
+    #     return
 
     n_requests = int(np.ceil(n_ref_times / ref_times_per_request))
 
@@ -199,13 +299,7 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         params = dict()
         params.update(base_params)
         params['start_date'] = request_start.strftime(time_format)
-        params['end_date'] = (request_end - datetime.timedelta(hours=1)).strftime(time_format)
-
-        file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
-                                                       request_start.strftime(time_format),
-                                                       request_end.strftime(time_format))
-        if file_name.exists() and not overwrite:
-            continue
+        params['end_date'] = (request_end - datetime.timedelta(hours=freq)).strftime(time_format)
 
         #print(json.dumps(params, indent=2, sort_keys=True))
         dt = time.time() - tm1
@@ -215,38 +309,71 @@ def download_data(dest, api_key, model, variables, lat, lon, ref_times_per_reque
         dt = time.time() - tm1
         #print("After wait: ", dt)
         tm1 = time.time()
+
+        print(f'endpoint_url = "{GREENLYTICS_ENDPOINT_URL}"')
+        print(f'headers = {{"Authorization": "{api_key}"}}')
+        print(f'params = {params}')
+
         print("Making request with params: {}".format(json.dumps(params)))
 
-        request_params = {'query_params': json.dumps(params)}
-        print(f"Headers: {headers}\nParams: {request_params}")
-        req = requests.Request('GET', GREENLYTICS_ENDPOINT_URL, headers=headers, params=request_params).prepare()
-        print('{}\n{}\r\n{}\r\n\r\n{}'.format(
-            '-----------START-----------',
-            req.method + ' ' + req.url,
-            '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
-            req.body,
-        ))
-        s = requests.Session()
-        response = s.send(req)
-        response.raise_for_status()
+        # request_params = {'query_params': json.dumps(params)}
+        # print(f"Headers: {headers}\nParams: {request_params}")
+        # req = requests.Request('GET', GREENLYTICS_ENDPOINT_URL, headers=headers, params=request_params).prepare()
+        # print('{}\n{}\r\n{}\r\n\r\n{}'.format(
+        #     '-----------START-----------',
+        #     req.method + ' ' + req.url,
+        #     '\r\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
+        #     req.body,
+        # ))
+        # s = requests.Session()
+        # response = s.send(req)
+        response = requests.post(GREENLYTICS_ENDPOINT_URL,
+                                  headers=headers,
+                                  json={'query_params': params})#, content_type='application/json')
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            print(f"Reguest header: {headers}, params: {params}")
+            raise e
+        if output_format == 'json_xarray':
+            ds = xa.Dataset.from_dict(json.loads(response.text))
+        else:
+            netcdf_url = json.loads(response.text)['file']
+            print(f"Downloading data from {netcdf_url}")
+            with requests.get(netcdf_url, stream=True) as r:
+                r.raise_for_status()
+                fd, tmp_file = tempfile.mkstemp()
+                with open(fd, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        # If you have chunk encoded response uncomment if
+                        # and set chunk_size parameter to None.
+                        # if chunk:
+                        f.write(chunk)
+                ds = xa.open_dataset(tmp_file)
+                os.remove(tmp_file)
 
-        ds = xa.Dataset.from_dict(json.loads(response.text))
-        ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
-        ds['valid_time'] = ds['valid_time'].astype(np.int32)
-        ds.attrs['nwp_model'] = model
-        response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
-        response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
-        if abs(request_start - response_start_date) > datetime.timedelta(days=1):
-            print(f"Response and request times differ by more than a day: "
-                  f"request_start: {request_start}, response_start: {response_start_date}. "
-                  f"Request_end: {request_end}, response end: {response_end_date}."
-                  f"Request params: {request_params}")
+        for i, (lat,lon) in enumerate(zip(lats, lons)):
+            # We try to make sure the latitudes and longitudes in the dataset are the same
+            ds_lat = ds['latitude'][i]
+            ds_lon = ds['longitude'][i]
+            if abs(ds_lat - lat) > 0.01 or abs(ds_lon - lon) > 0.01:
+                print(f"Warning: Difference between lat,lon: {lat},{lon} and {ds_lat}, {ds_lon} is too great")
+            ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
+            ds['valid_time'] = ds['valid_time'].astype(np.int32)
+            ds.attrs['nwp_model'] = model
+            response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
+            response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
+            if abs(request_start - response_start_date) > datetime.timedelta(days=1):
+                print(f"Response and request times differ by more than a day: "
+                      f"request_start: {request_start}, response_start: {response_start_date}. "
+                      f"Request_end: {request_end}, response end: {response_end_date}."
+                      f"Request params: {params}")
 
-        # We update the filename with the actual datetime in the dataset
-        file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
-                                                       response_start_date.strftime(time_format),
-                                                       response_end_date.strftime(time_format))
-        ds.to_netcdf(file_name)
+            # We update the filename with the actual datetime in the dataset
+            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
+                                                           response_start_date.strftime(time_format),
+                                                           response_end_date.strftime(time_format))
+            ds.to_netcdf(file_name)
         request_start = request_end
 
 
@@ -257,7 +384,7 @@ def parse_filename(f):
             'start_date', 'end_date' are also present.
     """
     coord_fmt = r"\d+\.\d+"
-    model_fmt = r"DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP"
+    model_fmt = r"DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF"
     date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
     date_pattern = r"({})_({}),({})_({})--({}).nc".format(model_fmt, coord_fmt, coord_fmt, date_fmt, date_fmt)
     nondate_pattern = r"({})_({}),({}).nc".format(model_fmt, coord_fmt, coord_fmt)
