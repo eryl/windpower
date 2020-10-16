@@ -412,6 +412,7 @@ DEFAULT_VARIABLE_CONFIG = VariableConfig(production_variable={
     "FMI_HIRLAM": 'site_production',
     "NCEP_GFS":  'site_production',
     "MetNo_MEPS": 'site_production',
+    "ECMWF_EPS-CF": 'site_production',
 }, variable_definitions={
     'DWD_ICON-EU': {'T': Variable('T'),
                     'U': Variable('U'),
@@ -474,6 +475,27 @@ DEFAULT_VARIABLE_CONFIG = VariableConfig(production_variable={
 
         'site_production': Variable('site_production'),
     },
+    "ECMWF_EPS-CF": {
+        "u10" : Variable('u10'),
+        "v10": Variable('v10'),
+        "u100": Variable('u100'),
+        "v100": Variable('v100'),
+        #"u200",
+        #"v200",
+        "i10fg": Variable('i10fg'),
+        "t2m": Variable('t2m'),
+        'phi_10': DiscretizedVariableEvenBins('phi_10', (-np.pi, np.pi), 64,
+                                              one_hot_encode=True),
+        'r_10': Variable('r_10'),
+        'phi_100': DiscretizedVariableEvenBins('phi_10', (-np.pi, np.pi), 64,
+                                               one_hot_encode=True),
+        'r_100': Variable('r_10'),
+        'lead_time': Variable('lead_time'),
+        'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
+                                           mapping={i: i for i in range(24)},
+                                           one_hot_encode=True),
+        'site_production': Variable('site_production'),
+    },
 },
 weather_variables={
     'DWD_ICON-EU':  ['T', 'U', 'V', 'phi', 'r', 'lead_time', 'time_of_day'],
@@ -481,7 +503,18 @@ weather_variables={
     "NCEP_GFS": ['WindUMS_Height', 'WindVMS_Height', 'Temperature_Height', 'phi', 'r', 'lead_time', 'time_of_day'],
     "MetNo_MEPS": ["x_wind_10m", "y_wind_10m", "x_wind_z", "y_wind_z", "air_pressure_at_sea_level",
                    "air_temperature_0m", "air_temperature_2m", "air_temperature_z",
-                   'phi_10m', 'r_10m', 'phi_z', 'r_z', 'lead_time', 'time_of_day']
+                   'phi_10m', 'r_10m', 'phi_z', 'r_z', 'lead_time', 'time_of_day'],
+    "ECMWF_EPS-CF": ["u10",
+                     "v10",
+                     "u100",
+                     "v100",
+                     #"u200",
+                     #"v200",
+                     "i10fg",
+                     "t2m",
+                     'phi_10', 'r_10', 'phi_100', 'r_100',
+                     'lead_time',
+                     'time_of_day']
 }
 )
 
