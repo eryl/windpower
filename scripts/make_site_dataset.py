@@ -21,6 +21,7 @@ def main():
     parser.add_argument('weather_dataset_dir', type=Path)
     parser.add_argument('production_data', type=Path)
     parser.add_argument('output_dir', type=Path)
+    parser.add_argument('--overwrite', action='store_true')
 
     args = parser.parse_args()
     args.output_dir.mkdir(exist_ok=True)
@@ -49,6 +50,9 @@ def main():
         except KeyError:
             print(f"No weather data found for site at {lat},{lon}")
             continue
+        site_data_path = args.output_dir / '{}_{}.nc'.format(site, weather_model)
+        if site_data_path.exists() and not args.overwrite:
+            print(f"Skipping site {site} since the file exists")
         site_production = production_data[site].dropna()
         site_capacity = capacities[site].to_numpy()
         normalized_site_production = (site_production / site_capacity).clip(0, 1)
@@ -65,7 +69,10 @@ def main():
         except ValueError:
             print(f"Can't make site dataset for {site} with weather file {weather_file}, the date ranges do not overlap")
             continue
-        site_data_path = args.output_dir / '{}_{}.nc'.format(site, weather_model)
+        except KeyError as e:
+            print(f"Can't make site dataset for {site} with weather file {weather_file}, received key error {e}")
+            continue
+
         site_dataset.to_netcdf(site_data_path)
     with open('/tmp/bad_dwd_dates.txt', 'w') as fp:
         for date, variable_counts in bad_nwp_dates.items():
