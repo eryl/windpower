@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from windpower.utils import timestamp, load_module
 from windpower.dataset import SiteDataset, k_fold_split_reference_times, get_nwp_model_from_path, get_reference_time, get_site_id
 import windpower.models
-from typing import Union, Optional
+from typing import Union, Optional, List
 
 from tqdm import tqdm, trange
 from pathlib import Path
@@ -26,10 +26,12 @@ from windpower.models import ModelConfig
 @dataclass
 class TrainConfig(object):
     outer_folds: int
-    outer_xval_loops: Optional[int]
-    inner_folds: Optional[int]
-    inner_xval_loops: Optional[int]
+    inner_folds: int
     train_kwargs: mltrain.train.TrainingConfig
+    outer_xval_loops: Optional[int] = None
+    outer_xval_loop_idxs: Optional[List[int]] = None
+    inner_xval_loops: Optional[int] = None
+    inner_xval_loop_idxs: Optional[List[int]] = None
     hp_search_iterations: int = 1
     fold_padding: int = 0
 
@@ -99,6 +101,7 @@ def train(*, site_files,
         outer_xval_loops = training_config.outer_xval_loops
         inner_folds = training_config.inner_folds
         inner_xval_loops = training_config.inner_xval_loops
+
         hp_search_iterations = training_config.hp_search_iterations
 
         def prepare_settings(settings: HPSettings):
@@ -133,6 +136,9 @@ def train(*, site_files,
                 total=outer_folds, desc="Outer folds"):
             if outer_xval_loops is not None and i >= outer_xval_loops:
                 break
+            elif (training_config.outer_xval_loop_idxs is not None
+                  and i not in training_config.outer_xval_loop_idxs):
+                continue
             outer_fold_dir = site_dir / f'outer_fold_{i:02}'
             outer_fold_dir.mkdir(parents=True)
             np.savez(outer_fold_dir / 'fold_reference_times.npz', train=train_reference_time, test=test_reference_times)
@@ -147,13 +153,16 @@ def train(*, site_files,
                         desc="Inner folds"):
                     if inner_xval_loops is not None and j >= inner_xval_loops:
                         break
+                    elif (training_config.inner_xval_loop_idxs is not None
+                          and j not in training_config.inner_xval_loop_idxs):
+                        continue
 
                     output_dir = outer_fold_dir / f'inner_fold_{j:02}'
                     output_dir.mkdir()
                     np.savez(output_dir / 'fold_reference_times.npz', train=fit_dataset_reference_times,
                              test=validation_dataset_reference_times)
 
-                    inner_hp_settings = HPSettings(train_config=training_config,
+                    inner_hp_settings = HPSettings(train_config=training_config.train_kwargs,
                                                    dataset_config=dataset_config,
                                                    variables_config=variables_config,
                                                    model_config=model_config,
