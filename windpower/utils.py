@@ -2,7 +2,7 @@ import datetime
 import importlib.util
 import re
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, Type
 
 
 def timestamp():
@@ -17,6 +17,7 @@ def timestamp():
     # YYYY-MM-DDTHH:MM:SS -> YYYY-MM-DDTHH.MM.SS
     time_format = "%Y-%m-%dT%H.%M.%S"
     return t.strftime(time_format)
+
 
 
 def load_module(module_path):
@@ -47,7 +48,8 @@ def sliding_window(x, window_length, step_length=1, axis=0):
     return x2
 
 
-def load_config(training_config_path: Path, config_type):
+T = TypeVar('T')
+def load_config(training_config_path: Path, config_type: Type[T]) -> T:
     mod = load_module(training_config_path)
     for k,v in mod.__dict__.items():
         if isinstance(v, config_type):
