@@ -1,3 +1,4 @@
+import pickle
 from collections import defaultdict, Counter
 import hashlib
 import xarray as xr
@@ -6,7 +7,7 @@ import numpy as np
 from tqdm import tqdm, trange
 from windpower.utils import load_module, sliding_window
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from enum import Enum
 
 class VariableType(Enum):
@@ -100,13 +101,26 @@ class DatasetConfig(object):
     include_variable_info: bool
 
 
+@dataclass
+class SplitConfig:
+    outer_folds: int  # How many outer cross-validation folds to use
+    inner_folds: int  # how many inner cross-validation folds to use. If 1, a single validation set is split of to pad the "outer" held out set
+    split_padding: int # How many hours of padding between each split
+    validation_ratio: float = 0.1  # How much data to split of to the validation set, will only be used if inner_folds=1
+    outer_fold_idxs: Optional[List[int]] = None  # If set, only produce these exact folds (so needs to be less than outer_folds). E.g. if outer_folds = 10 and outer_fold_idxs=[9], only the last outer fold is produced
+    inner_fold_idxs: Optional[List[int]] = None  # If set, only produce these exact folds (so needs to be less than inner_folds). E.g. if inner_folds = 10 and inner_fold_idxs=[9], only the last inner fold is produced
+
+
+
 def get_dataset_config(dataset_config_path):
     dataset_module = load_module(dataset_config_path)
     return dataset_module.dataset_config
 
+
 def get_variables_config(variables_config_path):
     variables_module = load_module(variables_config_path)
     return variables_module.variables_config
+
 
 def split_datetimes(datetimes, splits, padding):
     datetime_per_fold = len(datetimes) // splits
@@ -173,7 +187,10 @@ def get_site_id(dataset_path: Path):
         site_id, model, = m.groups()
         return site_id
     else:
-        raise ValueError(f"Not a dataset path: {dataset_path}")
+        print(f"Could not determine site id from path path: {dataset_path}, loading dataset")
+        with xr.open_dataset(dataset_path) as ds:
+            site_id = ds.attrs['site_id']  # This is the most
+            return site_id
 
 
 def get_reference_time(site_dataset_path: Path):
@@ -221,6 +238,102 @@ def k_fold_split_reference_times(forecast_times, k, padding):
         if len(fold_times) < 1 or len(remainder_times) < 1:
             raise RuntimeError("Intervals can not be separated, padding is too large (likely dataset is too small)")
         yield fold_times, remainder_times
+
+
+def distance_split_reference_times(test_reference_times, train_reference_time, validation_ratio, fold_padding):
+    """
+    Splits the train_reference times into a validation and training set, where the validation set pads the training set evenly on both sides (if the test set is contained in test set).
+    :param test_reference_times: The test set to use as reference. This should be a contigous time periods
+    :param train_reference_time:
+    :param validation_ratio:
+    :param fold_padding:
+    :return:
+    """
+    min_test_time = test_reference_times.min()
+    max_test_time = test_reference_times.max()
+
+    # Find the reference times of the train dataset closest to thos of the test dataset, we only have to check the first and last time of the reference time dataset since it is contigous
+    distance_to_test_min = np.abs(train_reference_time-min_test_time)
+    distance_to_test_max = np.abs(train_reference_time-max_test_time)
+    # Stack the two distances on top of eachother, pick the minimum one which tells us how close this reference time is to the test set
+    distance_to_test = np.min(np.stack([distance_to_test_min, distance_to_test_max], axis=0), axis=0)
+    idx_sorted_by_distance_to_test = np.argsort(distance_to_test)
+    n_validation_reference_times = int(round(len(train_reference_time)*validation_ratio))
+    validation_reference_time_indices = idx_sorted_by_distance_to_test[:n_validation_reference_times]
+    train_reference_time_indices = idx_sorted_by_distance_to_test[n_validation_reference_times:]
+    val_times = train_reference_time[validation_reference_time_indices]
+    train_times = train_reference_time[train_reference_time_indices]
+    # Now the question is what training reference times to keep. The valid times pads the test times, so no training
+    # times are in the interval [val_time.min(), val_time.max()] and we can repeat the procedure above
+    distance_to_valid_min = np.abs(train_times - val_times.min())
+    distance_to_valid_max = np.abs(train_times - val_times.max())
+    distance_to_valid = np.min(np.stack([distance_to_valid_min, distance_to_valid_max], axis=0), axis=0)
+    # Only select the training time indices where the distance to valid is greater than the fold_padding
+    train_times = train_times[distance_to_valid > np.timedelta64(fold_padding, 'h')]
+    np.sort(val_times)
+    np.sort(train_times)
+
+    return val_times, train_times
+
+
+def make_splits(reference_time, split_config: SplitConfig):
+    splits = []
+    for i, (test_reference_times, train_reference_time) in enumerate(k_fold_split_reference_times(reference_time,
+                                                                                                  split_config.outer_folds,
+                                                                                                  split_config.split_padding)):
+        if (split_config.outer_fold_idxs is not None
+              and i not in split_config.outer_fold_idxs):
+            continue
+
+        if split_config.inner_folds > 1:
+            inner_settings = []
+            for j, (validation_dataset_reference_times, fit_dataset_reference_times) in enumerate(k_fold_split_reference_times(train_reference_time,
+                                                                                                                               split_config.inner_folds,
+                                                                                                                               split_config.split_padding)):
+                if (split_config.inner_fold_idxs is not None
+                      and j not in split_config.inner_fold_idxs):
+                    continue
+                inner_settings.append((j, validation_dataset_reference_times, fit_dataset_reference_times))
+            splits.append((i, test_reference_times, inner_settings))
+
+        elif split_config.inner_folds == 1:
+            # We will create a validation dataset which pads the inner fold.
+            validation_reference_times, fit_reference_times = distance_split_reference_times(test_reference_times,
+                                                                                             train_reference_time,
+                                                                                             split_config.validation_ratio,
+                                                                                             split_config.split_padding)
+            splits.append((i, test_reference_times, validation_reference_times, fit_reference_times))
+        else:
+            splits.append((i, test_reference_times, train_reference_time))
+    return splits
+
+
+def make_all_site_splits(datasets: List[Path], output_dir: Path, split_config: SplitConfig):
+    per_site_datasets = defaultdict(list)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for dataset_path in datasets:
+        site_id = get_site_id(dataset_path)
+        per_site_datasets[site_id].append(dataset_path)
+
+    for site_id, site_datasets in tqdm(per_site_datasets.items(), desc="Site", total=len(per_site_datasets)):
+        # Now determine the reference time intersections
+        make_site_splits(site_id, site_datasets, output_dir=output_dir, split_config=split_config)
+
+
+def make_site_splits(site_id, dataset_paths: List[Path], output_dir: Path, split_config: SplitConfig):
+    reference_times = None
+    for dataset_path in dataset_paths:
+        with xr.open_dataset(dataset_path) as ds:
+            ds_reference_times = ds['reference_time'].values
+            if reference_times is None:
+                reference_times = set(ds_reference_times)
+            else:
+                reference_times.intersection_update(set(ds_reference_times))
+    output_file = output_dir / f'site_{site_id}_splits.pkl'
+    splits = make_splits(list(sorted(reference_times)), split_config)
+
+    with open(output_file, 'wb') as fp:
+        pickle.dump(dict(splits=splits, split_config=split_config, site_id=site_id), fp)
 
 
 
@@ -523,7 +636,24 @@ DEFAULT_DATASET_CONFIG = DatasetConfig(horizon=30,
                                        production_offset=3,
                                        include_variable_info=True,
                                        )
+
 def main():
+    import matplotlib.pyplot as plt
+    start_ref_time = np.datetime64('2019-01-01', 'h')
+    reference_times = start_ref_time + np.arange(6000)*np.timedelta64(1, 'h')
+    artists = None
+    for i, (test_times, full_train_times) in enumerate(k_fold_split_reference_times(reference_times, 10, 12)):
+        valid_times, train_times = distance_split_reference_times(test_times, full_train_times, 0.1, 12)
+        test_p = plt.scatter(test_times, np.zeros(len(test_times))+i, label='test', alpha=.3, c='green')
+        valid_p = plt.scatter(valid_times, np.zeros(len(valid_times))+i, label='valid', alpha=.3, c='blue')
+        train_p = plt.scatter(train_times, np.zeros(len(train_times))+i, label='train', alpha=.3, c='orange')
+        artists = zip(*((test_p, 'test'), (valid_p, 'valid'), (train_p, 'train')))
+    plt.legend(*artists)
+    plt.show()
+
+
+
+def main_old():
     import argparse
     from pathlib import Path
     import time

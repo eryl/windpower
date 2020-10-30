@@ -9,28 +9,22 @@ from windpower.train_ensemble import train
 
 def main():
     parser = argparse.ArgumentParser(description='Train random forrest on sites')
-    parser.add_argument('variables_config', help="Python module determining what variables to use, "
-                                               "and how they should be encoded", type=Path)
-    parser.add_argument('model_config',
-                        help="Python module determining what model and hyper parameters to use",
-                        type=Path)
-    parser.add_argument('dataset_config',
-                        help="Python module determining dataset parameters to use",
-                        type=Path)
-    parser.add_argument('training_config',
-                        help="Python module determining training parameters to use",
-                        type=Path)
+    parser.add_argument('config', help="Python module determining configuration settings", type=Path)
     parser.add_argument('experiment_dir', help="Directory to output results to", type=Path)
-
+    parser.add_argument('split_files_dir', help="Directory with dataset splits to use", type=Path)
     parser.add_argument('site_files', help="NetCDF files to use", nargs='+', type=Path)
+    parser.add_argument('--hp-search-iterations', help="Number of hyper parameter search iterations", type=int, default=1)
     args = parser.parse_args()
 
+    command_args = vars(args)
+    metadata = dict(command_line_args=command_args)
+    splits_files_list = list(args.split_files_dir.glob('site_*_splits.pkl'))
     train(site_files=args.site_files,
           experiment_dir=args.experiment_dir,
-          training_config_path=args.training_config,
-          dataset_config_path=args.dataset_config,
-          model_config_path=args.model_config,
-          variables_config_path=args.variables_config)
+          config_path=args.config,
+          splits_files_list=splits_files_list,
+          hp_search_iterations=args.hp_search_iterations,
+          metadata=metadata)
 
 
 if __name__ == '__main__':
