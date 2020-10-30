@@ -25,16 +25,8 @@ from windpower.dataset import DatasetConfig, VariableConfig, SplitConfig
 from windpower.models import ModelConfig
 
 @dataclass
-class TrainConfig(object):
-    outer_folds: int
-    inner_folds: int
-    train_kwargs: mltrain.train.TrainingConfig
-    outer_xval_loops: Optional[int] = None
-    outer_xval_loop_idxs: Optional[List[int]] = None
-    inner_xval_loops: Optional[int] = None
-    inner_xval_loop_idxs: Optional[List[int]] = None
+class HPConfig(object):
     hp_search_iterations: int = 1
-    fold_padding: int = 0
 
 
 @dataclass
@@ -53,7 +45,6 @@ def train(*,
           splits_files_list,
           experiment_dir,
           config_path: Path,
-          hp_search_iterations,
           dataset_rng=None,
           metadata=None,
           hp_rng=None):
@@ -80,11 +71,12 @@ def train(*,
             splits_files[split_id] = split_file
 
     model_config = load_config(config_path, ModelConfig)
-    ml_model = model_config.model.__class__.__name__
+    ml_model = model_config.model.__name__
 
     dataset_config = load_config(config_path, DatasetConfig)
     variables_config = load_config(config_path, VariableConfig)
     training_config = load_config(config_path, TrainingConfig)
+    hp_config = load_config(config_path, HPConfig)
 
     for site_dataset_path in tqdm(sorted(site_files), desc="Sites"):
         site_id = get_site_id(site_dataset_path)
@@ -114,11 +106,11 @@ def train(*,
                       variables_config=variables_config,
                       model_config=model_config,
                       training_config=training_config,
+                      hp_config=hp_config,
                       splits=splits,
                       split_config=split_config,
                       hp_rng=hp_rng,
-                      metadata=site_metadata,
-                      hp_search_iterations=hp_search_iterations)
+                      metadata=site_metadata,)
 
 
 def train_on_site(*,
@@ -128,11 +120,11 @@ def train_on_site(*,
                   variables_config: VariableConfig,
                   model_config: ModelConfig,
                   training_config: mltrain.train.TrainingConfig,
+                  hp_config: HPConfig,
                   splits,
                   split_config: SplitConfig,
                   metadata: dict,
-                  hp_rng,
-                  hp_search_iterations):
+                  hp_rng):
 
     def prepare_settings(settings: HPSettings):
         train_dataset = SiteDataset(dataset_path=site_dataset_path,
@@ -176,8 +168,7 @@ def train_on_site(*,
                 best_inner_models = []
                 best_inner_params = []
                 for j, validation_dataset_reference_times, fit_dataset_reference_times in tqdm(train_splits,
-                                                                                                 total=inner_folds,
-                                                                                                 desc="Inner folds"):
+                                                                                               desc="Inner folds"):
                     output_dir = outer_fold_dir / f'inner_fold_{j:02}'
                     output_dir.mkdir()
                     np.savez(output_dir / 'fold_reference_times.npz',
@@ -192,7 +183,7 @@ def train_on_site(*,
                                                    test_times=validation_dataset_reference_times,
                                                    output_dir=output_dir)
 
-                    inner_hp_manager = HyperParameterManager(inner_hp_settings, n=hp_search_iterations, rng=hp_rng)
+                    inner_hp_manager = HyperParameterManager(inner_hp_settings, n=hp_config.hp_search_iterations, rng=hp_rng)
                     inner_hp_trainer = HyperParameterTrainer(hp_manager=inner_hp_manager,
                                                              setting_interpreter=prepare_settings)
                     inner_hp_trainer.train()
@@ -214,6 +205,8 @@ def train_on_site(*,
                     best_inner_params_dir = outer_fold_dir / f'best_inner_setting_{i:02}'
                     training_args.output_dir = best_inner_params_dir
                     mltrain.train.train(training_args=training_args)
+            else:
+                raise NotImplementedError("Only test/train split has not been implemented")
         else:
             # We have more than one split
             i, test_reference_times, validation_reference_times, train_reference_times = split
@@ -232,7 +225,7 @@ def train_on_site(*,
                                            test_times=validation_reference_times,
                                            output_dir=outer_fold_dir)
 
-            inner_hp_manager = HyperParameterManager(inner_hp_settings, n=hp_search_iterations, rng=hp_rng)
+            inner_hp_manager = HyperParameterManager(inner_hp_settings, n=hp_config.hp_search_iterations, rng=hp_rng)
             inner_hp_trainer = HyperParameterTrainer(hp_manager=inner_hp_manager,
                                                      setting_interpreter=prepare_settings)
             inner_hp_trainer.train()
@@ -261,7 +254,7 @@ def evaluate_model(test_reference_times,
     dataset_path = metadata['experiment_config']['site_dataset_path']
     dataset_config = settings.dataset_config
     dataset_config.include_variable_config = True
-    test_dataset = SiteDataset(dataset_path=dataset_path,
+    test_dataset = SiteDataset(dataset_path=Path(dataset_path),
                                reference_time=test_reference_times,
                                variables_config=settings.variables_config,
                                dataset_config=dataset_config)

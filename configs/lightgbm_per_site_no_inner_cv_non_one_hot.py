@@ -1,4 +1,11 @@
-from windpower.dataset import DatasetConfig
+import numpy as np
+from windpower.dataset import Variable, CategoricalVariable, DiscretizedVariableEvenBins, VariableConfig, DatasetConfig, SplitConfig
+from windpower.train_ensemble import HPConfig
+
+from lightgbm import LGBMRegressor
+from windpower.models import ModelConfig, LightGBMWrapper
+
+import mltrain.train
 
 dataset_config = DatasetConfig(
     window_length=7,
@@ -7,9 +14,6 @@ dataset_config = DatasetConfig(
     include_variable_info=True,
 )
 
-from lightgbm import LGBMRegressor
-from windpower.models import ModelConfig, LightGBMWrapper
-from mltrain.hyperparameter import DiscreteHyperParameter, GeometricHyperParameter, IntegerRangeHyperParameter
 
 n_estimators = 1000  # We're using early stopping, so this doesn't seem to matter much
 learning_rate = 0.15
@@ -38,9 +42,7 @@ model_config = ModelConfig(model=model,
 
 
 
-from windpower.train_ensemble import TrainConfig, SplitConfig
 
-import mltrain.train
 train_kwargs = mltrain.train.TrainingConfig(max_epochs=1, keep_snapshots=False)
 
 outer_folds = 10
@@ -59,8 +61,7 @@ split_config = SplitConfig(outer_folds=outer_folds,
                            split_padding=fold_padding)
 
 
-import numpy as np
-from windpower.dataset import Variable, CategoricalVariable, DiscretizedVariableEvenBins, VariableConfig
+hp_config = HPConfig(hp_search_iterations=1)
 
 variables_config = VariableConfig(
     production_variable={

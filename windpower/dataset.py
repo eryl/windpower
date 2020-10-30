@@ -159,14 +159,18 @@ def split_datetimes(datetimes, splits, padding):
     return fold_times
 
 
-def get_nwp_model(dataset, dataset_path):
-    if 'nwp_model' in dataset.attrs:
-        return dataset.attrs['nwp_model']
-    else:
+def get_nwp_model(dataset_path: Path):
+    try:
         return get_nwp_model_from_path(dataset_path)
+    except ValueError as e:
+        with xr.open_dataset(dataset_path) as dataset:
+            if 'nwp_model' in dataset.attrs:
+                return dataset.attrs['nwp_model']
+            else:
+                raise e
 
 
-def get_nwp_model_from_path(dataset_path):
+def get_nwp_model_from_path(dataset_path: Path):
     import re
     #pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
     pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF).*.nc')
@@ -310,7 +314,7 @@ def make_splits(reference_time, split_config: SplitConfig):
 
 def make_all_site_splits(datasets: List[Path], output_dir: Path, split_config: SplitConfig):
     per_site_datasets = defaultdict(list)
-    output_dir.mkdir(parents=True, exist_ok=True)
+
     for dataset_path in datasets:
         site_id = get_site_id(dataset_path)
         per_site_datasets[site_id].append(dataset_path)
@@ -329,11 +333,12 @@ def make_site_splits(site_id, dataset_paths: List[Path], output_dir: Path, split
                 reference_times = set(ds_reference_times)
             else:
                 reference_times.intersection_update(set(ds_reference_times))
+    output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f'site_{site_id}_splits.pkl'
     splits = make_splits(list(sorted(reference_times)), split_config)
-
     with open(output_file, 'wb') as fp:
         pickle.dump(dict(splits=splits, split_config=split_config, site_id=site_id), fp)
+    return output_file
 
 
 
@@ -348,7 +353,7 @@ class SiteDataset(object):
         if dataset is None:
             dataset = xr.open_dataset(dataset_path)
         self.dataset = dataset.squeeze()  # For the datasets we have, latitude and longitude is only a single element. This unsqueeze removes those dimensions
-        self.nwp_model = get_nwp_model(dataset, dataset_path)
+        self.nwp_model = get_nwp_model(dataset_path)
         self.reference_time = reference_time
         self.variables_config = variables_config
         self.dataset_config = dataset_config
