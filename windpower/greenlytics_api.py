@@ -187,7 +187,7 @@ def earliest_start_date(model):
 def download_coords(dest, coordinates, model, variables, api_key,
                     start_date=None, end_date=None, freq=None,
                     ref_times_per_request=1e5, rate_limit=5, overwrite=False,
-                    coords_per_chunk=70):
+                    coords_per_chunk=5):
     # Set up default values
     if not variables:
         variables = DEFAULT_VARIABLES[model]
@@ -352,28 +352,32 @@ def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_req
                 ds = xa.open_dataset(tmp_file)
                 os.remove(tmp_file)
 
+        ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
+        ds['valid_time'] = ds['valid_time'].astype(np.int32)
+        ds.attrs['nwp_model'] = model
+        response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
+        response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
+        if abs(request_start - response_start_date) > datetime.timedelta(days=1):
+            print(f"Response and request times differ by more than a day: "
+                  f"request_start: {request_start}, response_start: {response_start_date}. "
+                  f"Request_end: {request_end}, response end: {response_end_date}."
+                  f"Request params: {params}")
+
         for i, (lat,lon) in enumerate(zip(lats, lons)):
             # We try to make sure the latitudes and longitudes in the dataset are the same
-            ds_lat = ds['latitude'][i]
-            ds_lon = ds['longitude'][i]
+            local_ds = ds.sel(point=i).drop_vars(['point'])
+            ds_lat = local_ds['latitude']
+            ds_lon = local_ds['longitude']
             if abs(ds_lat - lat) > 0.01 or abs(ds_lon - lon) > 0.01:
                 print(f"Warning: Difference between lat,lon: {lat},{lon} and {ds_lat}, {ds_lon} is too great")
-            ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
-            ds['valid_time'] = ds['valid_time'].astype(np.int32)
-            ds.attrs['nwp_model'] = model
-            response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
-            response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
-            if abs(request_start - response_start_date) > datetime.timedelta(days=1):
-                print(f"Response and request times differ by more than a day: "
-                      f"request_start: {request_start}, response_start: {response_start_date}. "
-                      f"Request_end: {request_end}, response end: {response_end_date}."
-                      f"Request params: {params}")
 
             # We update the filename with the actual datetime in the dataset
             file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
                                                            response_start_date.strftime(time_format),
                                                            response_end_date.strftime(time_format))
-            ds.to_netcdf(file_name)
+            # Now slice out only the relevant dataset
+            local_ds.to_netcdf(file_name)
+
         request_start = request_end
 
 
@@ -384,7 +388,7 @@ def parse_filename(f):
             'start_date', 'end_date' are also present.
     """
     coord_fmt = r"\d+\.\d+"
-    model_fmt = r"DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF"
+    model_fmt = '|'.join(MODELS)
     date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
     date_pattern = r"({})_({}),({})_({})--({}).nc".format(model_fmt, coord_fmt, coord_fmt, date_fmt, date_fmt)
     nondate_pattern = r"({})_({}),({}).nc".format(model_fmt, coord_fmt, coord_fmt)
