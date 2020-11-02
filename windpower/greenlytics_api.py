@@ -187,7 +187,7 @@ def earliest_start_date(model):
 def download_coords(dest, coordinates, model, variables, api_key,
                     start_date=None, end_date=None, freq=None,
                     ref_times_per_request=1e5, rate_limit=5, overwrite=False,
-                    coords_per_chunk=5):
+                    coords_per_chunk=70):
     # Set up default values
     if not variables:
         variables = DEFAULT_VARIABLES[model]
