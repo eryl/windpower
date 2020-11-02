@@ -15,9 +15,16 @@ def main():
                         type=Path)
     parser.add_argument('--site-filter', help="If given, should be a file with site id's to train on", type=Path)
     parser.add_argument('--output-dir', help="Where to output experiment data", type=Path, default=Path())
+    parser.add_argument('--exclude-pairs', help="Exclude these comma-seperated pairs", nargs='+')
+
     args = parser.parse_args()
 
     split_config = load_config(args.training_config, SplitConfig)
+
+    exclude_pairs = set()
+    for pair in args.exclude_pairs:
+        a, b = pair.split(',')
+        exclude_pairs.add(frozenset((a, b)))
 
     datasets = []
     for dataset_path in args.dataset_dirs:
@@ -43,6 +50,9 @@ def main():
             site_list = [site_a, site_b]
             site_a_model = get_nwp_model(site_a)
             site_b_model = get_nwp_model(site_b)
+            if frozenset((site_a_model, site_b_model)) in exclude_pairs:
+                print(f"Excluding pair ({site_a_model}, {site_b_model})")
+                continue
             output_dir = args.output_dir / f'{site_a_model}-vs-{site_b_model}'
             splits_file = make_site_splits(site_id, site_paths, output_dir, split_config)
             train(site_files=site_list,
