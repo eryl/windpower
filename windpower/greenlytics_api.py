@@ -388,7 +388,8 @@ def parse_filename(f):
             'start_date', 'end_date' are also present.
     """
     coord_fmt = r"\d+\.\d+"
-    model_fmt = '|'.join(MODELS)
+    #model_fmt = '|'.join(MODELS)
+    model_fmt = r'\w+'
     date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
     date_pattern = r"({})_({}),({})_({})--({}).nc".format(model_fmt, coord_fmt, coord_fmt, date_fmt, date_fmt)
     nondate_pattern = r"({})_({}),({}).nc".format(model_fmt, coord_fmt, coord_fmt)

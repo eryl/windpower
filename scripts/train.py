@@ -23,7 +23,6 @@ def main():
           experiment_dir=args.experiment_dir,
           config_path=args.config,
           splits_files_list=splits_files_list,
-          hp_search_iterations=args.hp_search_iterations,
           metadata=metadata)
 
 

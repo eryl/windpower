@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm, trange
 from windpower.utils import load_module, sliding_window
+from windpower.greenlytics_api import MODELS
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from enum import Enum
@@ -173,7 +174,8 @@ def get_nwp_model(dataset_path: Path):
 def get_nwp_model_from_path(dataset_path: Path):
     import re
     #pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF).*.nc')
+    model_pattern = '|'.join(MODELS)
+    pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF|DWD_ECMWF_NCEP).*.nc')
     m = re.match(pattern, dataset_path.name)
     if m is not None:
         (model,) = m.groups()
@@ -185,7 +187,7 @@ def get_nwp_model_from_path(dataset_path: Path):
 def get_site_id(dataset_path: Path):
     import re
     # pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    pattern = re.compile(r'(\d+)_(DWD_NCEP|DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|ECMWF_EPS-CF).nc')
+    pattern = re.compile(r'(\d+)_(DWD_NCEP|DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|ECMWF_EPS-CF|DWD_ECMWF_NCEP).nc')
     m = re.match(pattern, dataset_path.name)
     if m is not None:
         site_id, model, = m.groups()
@@ -531,6 +533,7 @@ DEFAULT_VARIABLE_CONFIG = VariableConfig(production_variable={
     "NCEP_GFS":  'site_production',
     "MetNo_MEPS": 'site_production',
     "ECMWF_EPS-CF": 'site_production',
+    'DWD_ECMWF_NCEP': 'site_production',
 }, variable_definitions={
     'DWD_ICON-EU': {'T': Variable('T'),
                     'U': Variable('U'),

@@ -5,6 +5,7 @@ from tqdm import tqdm
 from pathlib import Path
 import re
 from collections import defaultdict
+import windpower.greenlytics_api
 
 def main():
     parser = argparse.ArgumentParser(description="Merge files")
@@ -14,7 +15,8 @@ def main():
     args = parser.parse_args()
 
     weather_coordinate_files = defaultdict(dict)
-    pattern = re.compile(r'(DWD_ICON-EU|NCEP_GFS)_(\d*\.\d*),(\d*\.\d*).*\.nc')
+    model_pattern = '|'.join(windpower.greenlytics_api.MODELS)
+    pattern = re.compile(r'({})_(\d*\.\d*),(\d*\.\d*).*\.nc'.format(model_pattern))
     for d in args.directories:
         netcdf_files = list(d.glob('*.nc'))
         for f in netcdf_files:
@@ -23,13 +25,17 @@ def main():
                 model, lat, lon = m.groups()
                 weather_coordinate_files[(float(lat), float(lon))][model] = f
 
+
     for (lat, lon), files in tqdm(weather_coordinate_files.items()):
         try:
             datasets = []
             models = set()
+
             for model, f in files.items():
                 ds = xr.open_dataset(f)
-                ds = ds.drop_vars(['phi', 'r', 'latitude', 'longitude'], errors='ignore')
+                valid_variables = set(windpower.greenlytics_api.VALID_VARIABLES[model] + ['height', 'reference_time', 'valid_time'])
+                drop_vars = set(ds.variables) - valid_variables
+                ds = ds.drop_vars(list(drop_vars), errors='ignore')
                 datasets.append(ds)
                 models.add(model.split('_')[0])
             merged_nwp_model = '_'.join(sorted(models))

@@ -57,6 +57,19 @@ def process_dataset(f, output_dir=None, overwrite=False):
             ds['r_10'], ds['phi_10'] = polar_windspeed(ds, 'u10', 'v10')
             ds['r_100'], ds['phi_100'] = polar_windspeed(ds, 'u100', 'v100')
             do_write = True
+
+    elif nwp_model == 'DWD_ECMWF_NCEP':
+        if 'dwd_phi' not in ds.variables:
+            ds['dwd_r'], ds['dwd_phi'] = polar_windspeed(ds, 'U', 'V')
+            do_write = True
+        if 'ncep_phi' not in ds.variables:
+            ds['ncep_r'], ds['ncep_phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
+            do_write = True
+        if 'ec_phi_10' not in ds.variables:
+            ds['ec_r_10'], ds['ec_phi_10'] = polar_windspeed(ds, 'u10', 'v10')
+            ds['ec_r_100'], ds['ec_phi_100'] = polar_windspeed(ds, 'u100', 'v100')
+            do_write = True
+
     if do_write:
         if output_dir is not None:
             output_path = output_dir / f.name
