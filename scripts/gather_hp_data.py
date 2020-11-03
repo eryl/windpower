@@ -13,6 +13,10 @@ from tqdm import tqdm
 def main():
     parser = argparse.ArgumentParser(description="Summarize hyper parameter performance data to a csv ")
     parser.add_argument('experiment_directories', help="Scan these directories for experiments", type=Path, nargs='+')
+    parser.add_argument('--folder-tag', help="If set, tag each filename with the folder name",
+                        action='store_true')
+    parser.add_argument('--hostname-tag', help="If set, tag each filename with the hostname of the computer",
+                        action='store_true')
     args = parser.parse_args()
 
 
@@ -35,6 +39,15 @@ def main():
                 fieldnames.update(experiment_data.keys())
 
             fieldnames = list(sorted(fieldnames))
+
+            if args.folder_tag:
+                performance_name = d.name + '_' + performance_name
+
+            if args.hostname_tag:
+                import platform
+                hostname = platform.node()
+                performance_name = hostname + '_' + performance_name
+
             with open(d / performance_name, 'w') as out_fp:
                 csv_writer = DictWriter(out_fp, fieldnames=fieldnames)
                 csv_writer.writeheader()
