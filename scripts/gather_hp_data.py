@@ -52,7 +52,7 @@ def main():
             output_dir = args.output_dir
             if output_dir is None:
                 output_dir = d
-                
+
             with open(output_dir / performance_name, 'w') as out_fp:
                 csv_writer = DictWriter(out_fp, fieldnames=fieldnames)
                 csv_writer.writeheader()
