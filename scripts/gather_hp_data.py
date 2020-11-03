@@ -17,6 +17,7 @@ def main():
                         action='store_true')
     parser.add_argument('--hostname-tag', help="If set, tag each filename with the hostname of the computer",
                         action='store_true')
+    parser.add_argument('--output-dir', help="Write files to this directory", type=Path)
     args = parser.parse_args()
 
 
@@ -48,7 +49,11 @@ def main():
                 hostname = platform.node()
                 performance_name = hostname + '_' + performance_name
 
-            with open(d / performance_name, 'w') as out_fp:
+            output_dir = args.output_dir
+            if output_dir is None:
+                output_dir = d
+                
+            with open(output_dir / performance_name, 'w') as out_fp:
                 csv_writer = DictWriter(out_fp, fieldnames=fieldnames)
                 csv_writer.writeheader()
                 csv_writer.writerows(experiments)
