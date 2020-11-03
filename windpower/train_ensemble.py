@@ -455,7 +455,7 @@ def parse_flat_cv_experiment_directory(outer_fold_dir: Path) -> Tuple[List, List
         except FileNotFoundError as e:
             print(f"Missing files for experiment {best_model_dir}, error {e}")
 
-    best_settings_dir = outer_fold_dir / 'best_settings' / 'latest_experiment'
+    best_settings_dir = outer_fold_dir / 'best_setting' / 'latest_experiment'
     if best_settings_dir.exists():
         try:
             experiment_data = gather_experiment_data(best_settings_dir)
