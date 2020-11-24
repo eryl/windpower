@@ -4,207 +4,253 @@ import datetime
 import tempfile
 import time
 import json
+from dataclasses import dataclass
+from typing import List
 
 import numpy as np
 import requests
 import xarray as xa
 from tqdm import trange, tqdm
 
+@dataclass
+class GreenLyticsModel:
+    model_name: str
+    identifier: str
+    start_date: datetime
+    variables: List[str]
+    default_variables: List[str]
+    base_frequency: int
+
 
 GREENLYTICS_ENDPOINT_URL = "https://api.greenlytics.io/weather/v1/get_nwp"
-MODELS = ["DWD_ICON-EU", "FMI_HIRLAM", "NCEP_GFS", "MetNo_MEPS", "ECMWF_EPS-CF"]
-VALID_VARIABLES = {
-    "DWD_ICON-EU": [
-        "T",
-        "U",
-        "V",
-        "CLCT",
-        "CLCL",
-        "CLCM",
-        "CLCH",
-        "ASOB_S",
-        "ASWDIFD_S",
-        "ASWDIR_S",
-    ],
-    "FMI_HIRLAM": [
-        "Temperature",
-        "WindUMS",
-        "WindVMS",
-        "TotalCloudCover",
-        "LowCloudCover",
-        "MediumCloudCover",
-        "HighCloudCover",
-        "RadiationGlobalAccumulation",
-    ],
-    "NCEP_GFS": [
-        "WindGust",
-        "WindUMS_Height",
-        "WindVMS_Height",
-        "WindUMS_Isobar",
-        "WindVMS_Isobar",
-        "StormMotionU_Height",
-        "StormMotionV_Height",
-        "StormRelativeHelicity_Height",
-        "SurfacePressure",
-        "PressureReducedMSL",
-        "RelativeHumidity_Isobar",
-        "RelativeHumidity_Height",
-        "PrecipitableWater",
-        "SurfacePrecipitationRate",
-        "SurfacePrecipitationRateAvg",
-        "SurfaceTotalPrecipitation",
-        "SurfaceSnowDepth",
-        "SurfaceWaterEqAccSnowDepth",
-        "Temperature_Height",
-        "PotentialTemperature_Sigma",
-        "SoilMoisture_Depth",
-        "SoilTemperature_Depth",
-        "PlanetaryBoundaryLayer_Height",
-        "CloudCover_Isobar",
-        "SurfaceRadiationShortWaveDownAvg",
-        "SurfaceRadiationShortWaveUpAvg",
-        "SurfaceRadiationLongWaveDownAvg",
-        "SurfaceLatentHeatNetFluxAvg",
-        "SurfaceSensibleHeatNetFluxAvg",
-    ],
-    "MetNo_MEPS": [
-        "x_wind_10m",
-        "y_wind_10m",
-        "x_wind_z",
-        "y_wind_z",
-        "air_pressure_at_sea_level",
-        "air_temperature_0m",
-        "air_temperature_2m",
-        "air_temperature_z",
-        "relative_humidity_2m",
-        "relative_humidity_z",
-        "cloud_area_fraction",
-        "low_type_cloud_area_fraction",
-        "medium_type_cloud_area_fraction",
-        "high_type_cloud_area_fraction",
-        "integral_of_rainfall_amount_wrt_time",
-        "integral_of_surface_net_downward_shortwave_flux_wrt_time",
-    ],
-    "ECMWF_EPS-CF": [
-        "u10", # U-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
-        "v10", # V-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
-        "u100", # U-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
-        "v100", # V-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
-        "u200", # U-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
-        "v200", # V-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
-        "i10fg", # Instantaneous wind gusts in meters per second (m.s-1) at 10 meters above the surface (GRIB variable documentation)
-        "t2m", # Temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
-        "d2m", # Dewpoint temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
-        "tav300", # Average potential temperature in degrees Celsius (°C) in the upper 300m (GRIB variable documentation)
-        "msl", # Mean sea level pressure in Pascals (Pa) (GRIB variable documentation)
-        "tcc", # Total cloud cover in proportion (0-1) (GRIB variable documentation)
-        "lcc", # Low cloud cover in proportion (0-1) (GRIB variable documentation)
-        "mcc", # Medium cloud cover in proportion (0-1) (GRIB variable documentation)
-        "hcc", # High cloud cover in proportion (0-1) (GRIB variable documentation)
-        "dsrp", # Direct solar radiation in Joules per square meter (J.m-2) (GRIB variable documentation)
-        "uvb", # Downward UV radiation in Joules per square meter (J.m-2) at the surface (GRIB variable documentation)
-        "tp", # Total precipitation in meters (m) (GRIB variable documentation)
-        "ilspf", # Instantaneous large-scale surface precipitation fraction (GRIB variable documentation)
-    ]
-}
 
-DEFAULT_VARIABLES = {
-    "DWD_ICON-EU": [
-        "T",
-        "U",
-        "V",
-    ],
-    "FMI_HIRLAM": [
-        "Temperature",
-        "WindUMS",
-        "WindVMS",
-    ],
-    "NCEP_GFS": [
-        "WindUMS_Height",
-        "WindVMS_Height",
-        "Temperature_Height",
-    ],
-    "MetNo_MEPS": [
-        "x_wind_10m",
-        "y_wind_10m",
-        "x_wind_z",
-        "y_wind_z",
-    ],
-    "ECMWF_EPS-CF": [
-        "u10",
-        "v10",
-        "u100",
-        "v100",
-        #"u200",
-        #"v200",
-        "i10fg",
-        "t2m",
-    ]
-}
 
-MODEL_BASE_FREQUENCY = {
-    "DWD_ICON-EU": 3,
-    "FMI_HIRLAM": 6,
-    "NCEP_GFS": 6,
-    "MetNo_MEPS": 6,
-    "ECMWF_EPS-CF": 6
-}
+MODELS = [
+    GreenLyticsModel(model_name="DWD_ICON-EU", identifier="DWD_ICON-EU",
+                     start_date=datetime.datetime(2019, 3, 5, 12),
+                     base_frequency=3,
+                     variables=[
+                         "T",
+                         "U",
+                         "V",
+                         "CLCT",
+                         "CLCL",
+                         "CLCM",
+                         "CLCH",
+                         "ASOB_S",
+                         "ASWDIFD_S",
+                         "ASWDIR_S",
+                     ],
+                     default_variables=[
+                         "T",
+                         "U",
+                         "V",
+                     ]),
+    GreenLyticsModel(model_name="FMI_HIRLAM",
+                     identifier="FMI_HIRLAM",
+                     start_date=datetime.datetime(2019, 6, 24, 6),
+                     base_frequency=6,
+                     variables= [
+                         "Temperature",
+                         "WindUMS",
+                         "WindVMS",
+                         "TotalCloudCover",
+                         "LowCloudCover",
+                         "MediumCloudCover",
+                         "HighCloudCover",
+                         "RadiationGlobalAccumulation",
+                     ],
+                     default_variables=[
+                         "Temperature",
+                         "WindUMS",
+                         "WindVMS",
+                     ],),
+    GreenLyticsModel(model_name="NCEP_GFS",
+                     identifier="NCEP_GFS",
+                     start_date=datetime.datetime(2019, 6, 24, 6),
+                     base_frequency=6,
+                     variables= [
+                         "WindGust",
+                         "WindUMS_Height",
+                         "WindVMS_Height",
+                         "WindUMS_Isobar",
+                         "WindVMS_Isobar",
+                         "StormMotionU_Height",
+                         "StormMotionV_Height",
+                         "StormRelativeHelicity_Height",
+                         "SurfacePressure",
+                         "PressureReducedMSL",
+                         "RelativeHumidity_Isobar",
+                         "RelativeHumidity_Height",
+                         "PrecipitableWater",
+                         "SurfacePrecipitationRate",
+                         "SurfacePrecipitationRateAvg",
+                         "SurfaceTotalPrecipitation",
+                         "SurfaceSnowDepth",
+                         "SurfaceWaterEqAccSnowDepth",
+                         "Temperature_Height",
+                         "PotentialTemperature_Sigma",
+                         "SoilMoisture_Depth",
+                         "SoilTemperature_Depth",
+                         "PlanetaryBoundaryLayer_Height",
+                         "CloudCover_Isobar",
+                         "SurfaceRadiationShortWaveDownAvg",
+                         "SurfaceRadiationShortWaveUpAvg",
+                         "SurfaceRadiationLongWaveDownAvg",
+                         "SurfaceLatentHeatNetFluxAvg",
+                         "SurfaceSensibleHeatNetFluxAvg",
+                     ],
+                     default_variables=[
+                         "WindUMS_Height",
+                         "WindVMS_Height",
+                         "Temperature_Height",
+                     ]),
+    GreenLyticsModel(model_name="MetNo_MEPS",
+                     identifier="MetNo_MEPS",
+                     start_date=datetime.datetime(2018, 10, 1, 0),
+                     base_frequency=6,
+                     variables= [
+                         "x_wind_10m",
+                         "y_wind_10m",
+                         "x_wind_z",
+                         "y_wind_z",
+                         "air_pressure_at_sea_level",
+                         "air_temperature_0m",
+                         "air_temperature_2m",
+                         "air_temperature_z",
+                         "relative_humidity_2m",
+                         "relative_humidity_z",
+                         "cloud_area_fraction",
+                         "low_type_cloud_area_fraction",
+                         "medium_type_cloud_area_fraction",
+                         "high_type_cloud_area_fraction",
+                         "integral_of_rainfall_amount_wrt_time",
+                         "integral_of_surface_net_downward_shortwave_flux_wrt_time",
+                     ],
+                     default_variables=[
+                         "x_wind_10m",
+                         "y_wind_10m",
+                         "x_wind_z",
+                         "y_wind_z",
+                     ]),
+    GreenLyticsModel(model_name="ECMWF_EPS-CF",
+                     identifier="ECMWF_EPS-CF",
+                     start_date=datetime.datetime(1992, 11, 24, 12),
+                     base_frequency=6,
+                     variables= [
+                         "u10", # U-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
+                         "v10", # V-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
+                         "u100", # U-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
+                         "v100", # V-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
+                         "u200", # U-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
+                         "v200", # V-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
+                         "i10fg", # Instantaneous wind gusts in meters per second (m.s-1) at 10 meters above the surface (GRIB variable documentation)
+                         "t2m", # Temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
+                         "d2m", # Dewpoint temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
+                         "tav300", # Average potential temperature in degrees Celsius (°C) in the upper 300m (GRIB variable documentation)
+                         "msl", # Mean sea level pressure in Pascals (Pa) (GRIB variable documentation)
+                         "tcc", # Total cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "lcc", # Low cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "mcc", # Medium cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "hcc", # High cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "dsrp", # Direct solar radiation in Joules per square meter (J.m-2) (GRIB variable documentation)
+                         "uvb", # Downward UV radiation in Joules per square meter (J.m-2) at the surface (GRIB variable documentation)
+                         "tp", # Total precipitation in meters (m) (GRIB variable documentation)
+                         "ilspf", # Instantaneous large-scale surface precipitation fraction (GRIB variable documentation)
+                     ],
+                     default_variables= [
+                         "u10",
+                         "v10",
+                         "u100",
+                         "v100",
+                         #"u200",
+                         #"v200",
+                         "i10fg",
+                         "t2m",
+                     ]),
+    GreenLyticsModel(model_name="ECMWF_HRES",
+                     identifier="ECMWF_HRES",
+                     start_date=datetime.datetime(2019, 1, 1, 0, 0),
+                     base_frequency=12,
+                     variables= [
+                         "u10", # U-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
+                         "v10", # V-component of wind in meters per second (m.s-2) at 10 meters above the surface (GRIB variable documentation)
+                         "u100", # U-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
+                         "v100", # V-component of wind in meters per second (m.s-2) at 100 meters above the surface (GRIB variable documentation)
+                         "u200", # U-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
+                         "v200", # V-component of wind in meters per second (m.s-2) at 200 meters above the surface (GRIB variable documentation)
+                         "i10fg", # Instantaneous wind gusts in meters per second (m.s-1) at 10 meters above the surface (GRIB variable documentation)
+                         "t2m", # Temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
+                         "d2m", # Dewpoint temperature in Kelvins (K) at 2 meters above the surface (GRIB variable documentation)
+                         "tav300", # Average potential temperature in degrees Celsius (°C) in the upper 300m (GRIB variable documentation)
+                         "msl", # Mean sea level pressure in Pascals (Pa) (GRIB variable documentation)
+                         "tcc", # Total cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "lcc", # Low cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "mcc", # Medium cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "hcc", # High cloud cover in proportion (0-1) (GRIB variable documentation)
+                         "dsrp", # Direct solar radiation in Joules per square meter (J.m-2) (GRIB variable documentation)
+                         "uvb", # Downward UV radiation in Joules per square meter (J.m-2) at the surface (GRIB variable documentation)
+                         "tp", # Total precipitation in meters (m) (GRIB variable documentation)
+                         "ilspf", # Instantaneous large-scale surface precipitation fraction (GRIB variable documentation)
+                     ],
+                     default_variables= [
+                         "u10",
+                         "v10",
+                         "u100",
+                         "v100",
+                         #"u200",
+                         #"v200",
+                         "i10fg",
+                         "t2m",
+                     ]),
+]
 
-MODEL_START_DATES = {
-    "DWD_ICON-EU": datetime.datetime(2019, 3, 5, 12),
-    "FMI_HIRLAM": datetime.datetime(2019, 6, 24, 6),
-    "NCEP_GFS": datetime.datetime(2019, 6, 24, 6),
-    "MetNo_MEPS": datetime.datetime(2018, 10, 1, 0),
-    "ECMWF_EPS-CF": datetime.datetime(1992, 11, 24, 12),
-}
+MODEL_MAP = {model.model_name: model for model in MODELS}
 
-def check_params(model, variables, freq, start_date):
-    """Check that the chosen variables and frequency is ok for the selected model"""
-    base_freq = MODEL_BASE_FREQUENCY[model]
+def check_params(model_name, variables, freq, start_date):
+    """Check that the chosen variables and frequency is ok for the selected model_name"""
+    model = MODEL_MAP[model_name]
+    base_freq = model.base_frequency
     if freq % base_freq != 0:
-        raise ValueError(f"Invalid frequency for {model}, frequency should be a multiple of {base_freq}.")
+        raise ValueError(f"Invalid frequency for {model_name}, frequency should be a multiple of {base_freq}.")
 
-    model_valid_variables = VALID_VARIABLES[model]
+    model_valid_variables = model.variables
     for var in variables:
         invalid_variables = []
         if var not in model_valid_variables:
             invalid_variables.append(var)
         if invalid_variables:
-            raise ValueError(f"Invalid variables for {model}: {invalid_variables}")
+            raise ValueError(f"Invalid variables for {model_name}: {invalid_variables}")
 
-    if start_date < MODEL_START_DATES[model]:
-        raise ValueError(f"Invalid start date {start_date} for model {model}, "
-                         f"earliest possible date is {MODEL_START_DATES[model]}")
-
-
-def earliest_start_date(model):
-    try:
-        return MODEL_START_DATES[model]
-    except KeyError:
-        raise ValueError(f"No such model {model}")
+    if start_date < model.start_date:
+        raise ValueError(f"Invalid start date {start_date} for model_name {model_name}, "
+                         f"earliest possible date is {model.start_date}")
 
 
-def download_coords(dest, coordinates, model, variables, api_key,
+
+
+def download_coords(dest, coordinates, model_name, variables, api_key,
                     start_date=None, end_date=None, freq=None,
                     ref_times_per_request=1e5, rate_limit=5, overwrite=False,
                     coords_per_chunk=70):
+    model = MODEL_MAP[model_name]
     # Set up default values
     if not variables:
-        variables = DEFAULT_VARIABLES[model]
+        variables = model.default_variables
         print(f"No variables specified. Using default variables {variables}.")
     if not freq:
-        freq = MODEL_BASE_FREQUENCY[model]
+        freq = model.base_frequency
 
     if start_date is None:
-        start_date = earliest_start_date(model)
+        start_date = model.start_date
     elif not isinstance(start_date, datetime.datetime):
         try:
             start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
         except ValueError:
             start_date = datetime.datetime.strptime(start_date, '%Y-%m-%dT%H')
-        min_start_date = earliest_start_date(model)
+        min_start_date = model.start_date
         if start_date < min_start_date:
-            print(f"Invalid earliest start date for {model}, setting {start_date} to {min_start_date}")
+            print(f"Invalid earliest start date for {model_name}, setting {start_date} to {min_start_date}")
             start_date = min_start_date
 
     if end_date is None:
@@ -212,7 +258,7 @@ def download_coords(dest, coordinates, model, variables, api_key,
     elif not isinstance(end_date, datetime.datetime):
         end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-    check_params(model, variables, freq, start_date)
+    check_params(model_name, variables, freq, start_date)
     coord_chunks = []
     sorted_coords = list(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])))
     n_coord_chunks = int(np.ceil(len(coordinates)/coords_per_chunk))
@@ -256,7 +302,7 @@ def get_missing_ref_times(dest, coords_pattern, start_date: datetime.datetime, e
 
 
 
-def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_request=1e5, freq=6, rate_limit=60,
+def download_data(dest, api_key, model: GreenLyticsModel, variables, lats, lons, ref_times_per_request=1e5, freq=6, rate_limit=60,
                   start_date=None, end_date=None, overwrite=False, use_direct_url=False):
     if use_direct_url:
         output_format = 'netcdf_url'
@@ -264,7 +310,7 @@ def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_req
         output_format = 'json_xarray'
     headers = {"Authorization": api_key}
     base_params = {
-        'model': model,
+        'model_name': model.identifier,
         'type': 'points',
         'coords': {'latitude': lats, 'longitude': lons, 'valid_time': list(range(0, 48))},
         'variables': variables,
@@ -278,7 +324,7 @@ def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_req
     n_ref_times = (end_date - start_date)//frequency
     dest.mkdir(parents=True, exist_ok=True)
     time_format = '%Y-%m-%d %H'
-    #coords_filename_part = f'{model}_{lat},{lon}'
+    #coords_filename_part = f'{model_name}_{lat},{lon}'
 
 
     #missing_ref_times = get_missing_ref_times(dest, coords_filename_part, start_date, end_date, frequency)
@@ -354,7 +400,7 @@ def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_req
 
         ds['reference_time'] = ds['reference_time'].values.astype('datetime64[ns]')
         ds['valid_time'] = ds['valid_time'].astype(np.int32)
-        ds.attrs['nwp_model'] = model
+        ds.attrs['nwp_model'] = model.identifier
         response_start_date = min(ds['reference_time'].values).astype('datetime64[s]').tolist()
         response_end_date = max(ds['reference_time'].values).astype('datetime64[s]').tolist()
         if abs(request_start - response_start_date) > datetime.timedelta(days=1):
@@ -372,7 +418,7 @@ def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_req
                 print(f"Warning: Difference between lat,lon: {lat},{lon} and {ds_lat}, {ds_lon} is too great")
 
             # We update the filename with the actual datetime in the dataset
-            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
+            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model_name'], lat, lon,
                                                            response_start_date.strftime(time_format),
                                                            response_end_date.strftime(time_format))
             # Now slice out only the relevant dataset
@@ -384,7 +430,7 @@ def download_data(dest, api_key, model, variables, lats, lons, ref_times_per_req
 def parse_filename(f):
     """Return different parameters from a filename of a downloaded file
     :param f: Filename to parse
-    :return A dictionary with the keys 'model', 'latitude', 'longitude'. If the file has a data range, the keys
+    :return A dictionary with the keys 'model_name', 'latitude', 'longitude'. If the file has a data range, the keys
             'start_date', 'end_date' are also present.
     """
     coord_fmt = r"\d+\.\d+"
