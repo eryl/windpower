@@ -232,7 +232,7 @@ def check_params(model_name, variables, freq, start_date):
 def download_coords(dest, coordinates, model_name, variables, api_key,
                     start_date=None, end_date=None, freq=None,
                     ref_times_per_request=1e5, rate_limit=5, overwrite=False,
-                    coords_per_chunk=70):
+                    coords_per_request=70):
     model = MODEL_MAP[model_name]
     # Set up default values
     if not variables:
@@ -261,10 +261,10 @@ def download_coords(dest, coordinates, model_name, variables, api_key,
     check_params(model_name, variables, freq, start_date)
     coord_chunks = []
     sorted_coords = list(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])))
-    n_coord_chunks = int(np.ceil(len(coordinates)/coords_per_chunk))
+    n_coord_chunks = int(np.ceil(len(coordinates)/coords_per_request))
     for i in range(n_coord_chunks):
-        start_coord = i*coords_per_chunk
-        end_coord = start_coord + coords_per_chunk
+        start_coord = i*coords_per_request
+        end_coord = start_coord + coords_per_request
         coord_chunks.append(sorted_coords[start_coord:end_coord])
 
     for coord_chunk in tqdm(coord_chunks, desc='Coordinates'):

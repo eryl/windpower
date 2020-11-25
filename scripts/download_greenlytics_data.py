@@ -18,14 +18,14 @@ def main():
                         help='For each request, limit number of reference times to this number',
                         type=int, default=int(1e4))
     parser.add_argument('--overwrite', help='If set, overwrite existing dataset files', action='store_true')
-
-
     parser.add_argument('--variables',
                                help="What variables to download, if not set the default variables will be used",
                                nargs='+')
     parser.add_argument('--freq',
                         help='Get forecasts with this frequence in hours. ',
                         type=int)
+    parser.add_argument('--coords-per-request', help="How many coordinate points to download for each request",
+                        type=int, default=70)
     parser.add_argument('--start-date', help="Start downloading from this date. If not set, "
                                                    "the earliest possible date will be used. "
                                                    "Format should be '%%Y-%%m-%%d'. If not supplied, earliest "
@@ -50,6 +50,7 @@ def main():
                                               ref_times_per_request=args.ref_times_per_request,
                                               rate_limit=args.rate_limit,
                                               overwrite=args.overwrite,
+                                              coords_per_chunk=args.coords_per_request
                                               )
 
 if __name__ == '__main__':
