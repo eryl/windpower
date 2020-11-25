@@ -50,7 +50,7 @@ def main():
                                               ref_times_per_request=args.ref_times_per_request,
                                               rate_limit=args.rate_limit,
                                               overwrite=args.overwrite,
-                                              coords_per_chunk=args.coords_per_request
+                                              coords_per_request=args.coords_per_request
                                               )
 
 if __name__ == '__main__':
