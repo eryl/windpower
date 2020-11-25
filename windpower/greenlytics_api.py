@@ -310,7 +310,7 @@ def download_data(dest, api_key, model: GreenLyticsModel, variables, lats, lons,
         output_format = 'json_xarray'
     headers = {"Authorization": api_key}
     base_params = {
-        'model_name': model.identifier,
+        'model': model.identifier,
         'type': 'points',
         'coords': {'latitude': lats, 'longitude': lons, 'valid_time': list(range(0, 48))},
         'variables': variables,
@@ -418,7 +418,7 @@ def download_data(dest, api_key, model: GreenLyticsModel, variables, lats, lons,
                 print(f"Warning: Difference between lat,lon: {lat},{lon} and {ds_lat}, {ds_lon} is too great")
 
             # We update the filename with the actual datetime in the dataset
-            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model_name'], lat, lon,
+            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
                                                            response_start_date.strftime(time_format),
                                                            response_end_date.strftime(time_format))
             # Now slice out only the relevant dataset
