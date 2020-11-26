@@ -52,7 +52,7 @@ def process_dataset(f, output_dir=None, overwrite=False):
         if 'ncep_phi' not in ds.variables:
             ds['ncep_r'], ds['ncep_phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
             do_write = True
-    elif nwp_model == 'ECMWF_EPS-CF':
+    elif nwp_model == 'ECMWF_EPS-CF' or nwp_model == 'ECMWF_HRES':
         if 'phi_10' not in ds.variables:
             ds['r_10'], ds['phi_10'] = polar_windspeed(ds, 'u10', 'v10')
             ds['r_100'], ds['phi_100'] = polar_windspeed(ds, 'u100', 'v100')
