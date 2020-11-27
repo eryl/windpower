@@ -5,7 +5,7 @@ import tempfile
 import time
 import json
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import requests
@@ -22,13 +22,71 @@ class GreenLyticsModel:
     base_frequency: int
 
 
+@dataclass
+class GreenlyticsModelDataset:
+    model: GreenLyticsModel
+    latitude: float
+    longitude: float
+    start_date: Optional[datetime.datetime] = None
+    end_date: Optional[datetime.datetime] = None
+
+    def __str__(self):
+        time_format = '%Y-%m-%d %H'
+        if self.start_date is not None:
+            start_date = self.start_date.strftime(time_format)
+            if self.end_date is not None:
+                end_date = self.end_date.strftime(time_format)
+                return f'{self.model.identifier}_{self.latitude},{self.longitude}_{start_date}--{end_date}'
+            else:
+                return f'{self.model.identifier}_{self.latitude},{self.longitude}_{start_date}'
+        else:
+            return f'{self.model.identifier}_{self.latitude},{self.longitude}'
+
+    @classmethod
+    def fromstring(cls, str):
+        coord_fmt = r"\d+\.\d+"
+        model_fmt = '|'.join(model.identifier for model in MODELS)
+        date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
+        full_date_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt})--({date_fmt}).*"
+        start_date_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt}).*"
+        nondate_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt}).*"
+        m = re.match(full_date_pattern, str)
+        if m is not None:
+            model, latitude, longitude, start_date, end_date = m.groups()
+            start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d %H')
+            end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d %H')
+            return GreenlyticsModelDataset(model=MODEL_MAP[model],
+                                           latitude=latitude,
+                                           longitude=longitude,
+                                           start_date=start_date,
+                                           end_date=end_date)
+        else:
+            m = re.match(start_date_pattern, str)
+            if m is not None:
+                model, latitude, longitude, start_date = m.groups()
+                start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d %H')
+                return GreenlyticsModelDataset(model=MODEL_MAP[model],
+                                               latitude=latitude,
+                                               longitude=longitude,
+                                               start_date=start_date)
+            else:
+                m = re.match(nondate_pattern, str)
+                if m is not None:
+                    model, latitude, longitude = m.groups()
+                    return GreenlyticsModelDataset(model=MODEL_MAP[model],
+                                                   latitude=latitude,
+                                                   longitude=longitude)
+                else:
+                    raise ValueError(f"Not a valid NWP dataset string: {str}")
+
+
 GREENLYTICS_ENDPOINT_URL = "https://api.greenlytics.io/weather/v1/get_nwp"
 
 
-MODELS = [
+BASE_MODELS = [
     GreenLyticsModel(model_name="DWD_ICON-EU", identifier="DWD_ICON-EU",
                      start_date=datetime.datetime(2019, 3, 5, 12),
-                     base_frequency=3,
+                     base_frequency=6,  # The DWD dataset actually supports freq3, but the hours 03, 09, 15 and 21 only has a horizon of 30
                      variables=[
                          "T",
                          "U",
@@ -418,9 +476,12 @@ def download_data(dest, api_key, model: GreenLyticsModel, variables, lats, lons,
                 print(f"Warning: Difference between lat,lon: {lat},{lon} and {ds_lat}, {ds_lon} is too great")
 
             # We update the filename with the actual datetime in the dataset
-            file_name = dest / '{}_{},{}_{}--{}.nc'.format(params['model'], lat, lon,
-                                                           response_start_date.strftime(time_format),
-                                                           response_end_date.strftime(time_format))
+            model_metadata = GreenlyticsModelDataset(model,
+                                                     latitude=lat,
+                                                     longitude=lon,
+                                                     start_date=response_start_date,
+                                                     end_date=response_end_date)
+            file_name = dest / f'{str(model_metadata)}.nc'
             # Now slice out only the relevant dataset
             local_ds.to_netcdf(file_name)
 
@@ -434,8 +495,8 @@ def parse_filename(f):
             'start_date', 'end_date' are also present.
     """
     coord_fmt = r"\d+\.\d+"
-    #model_fmt = '|'.join(MODELS)
-    model_fmt = r'\w+'
+    model_fmt = '|'.join(model.identifier for model in MODELS)
+    #model_fmt = r'\w+'
     date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
     date_pattern = r"({})_({}),({})_({})--({}).nc".format(model_fmt, coord_fmt, coord_fmt, date_fmt, date_fmt)
     nondate_pattern = r"({})_({}),({}).nc".format(model_fmt, coord_fmt, coord_fmt)
