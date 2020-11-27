@@ -5,7 +5,6 @@ import json
 import re
 import numpy as np
 from csv import DictWriter, DictReader
-from windpower.dataset import get_nwp_model_from_path, get_site_id
 from windpower.train_ensemble import parse_experiment_directory
 import mltrain.train
 from tqdm import tqdm
