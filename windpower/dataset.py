@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm, trange
 from windpower.utils import load_module, sliding_window
-from windpower.greenlytics_api import MODELS
+from windpower.greenlytics_api import MODELS, MODEL_MAP, GreenLyticsModel
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from enum import Enum
@@ -112,6 +112,28 @@ class SplitConfig:
     inner_fold_idxs: Optional[List[int]] = None  # If set, only produce these exact folds (so needs to be less than inner_folds). E.g. if inner_folds = 10 and inner_fold_idxs=[9], only the last inner fold is produced
 
 
+@dataclass
+class SiteDatasetMetadata:
+    nwp_model: GreenLyticsModel
+    site_id: str
+
+    def __str__(self):
+        return f'{self.site_id}_{self.nwp_model}'
+
+    @classmethod
+    def fromstr(cls, s):
+        import re
+        model_pattern = '|'.join(model.identifier for model in MODELS)
+        pattern = re.compile(rf'(.*)_({model_pattern}).*')
+        m = re.match(pattern, s)
+        if m is not None:
+            site_id, model_id = m.groups()
+            return SiteDatasetMetadata(site_id=site_id, nwp_model=MODEL_MAP[model_id])
+        else:
+            raise ValueError(f"Not a dataset path: {dataset_path}")
+
+
+
 
 def get_dataset_config(dataset_config_path):
     dataset_module = load_module(dataset_config_path)
@@ -172,31 +194,13 @@ def get_nwp_model(dataset_path: Path):
 
 
 def get_nwp_model_from_path(dataset_path: Path):
-    import re
-    #pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    model_pattern = '|'.join(MODELS)
-    pattern = re.compile(r'.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|DWD_NCEP|ECMWF_EPS-CF|DWD_ECMWF_NCEP).*.nc')
-    m = re.match(pattern, dataset_path.name)
-    if m is not None:
-        (model,) = m.groups()
-        return model
-    else:
-        raise ValueError(f"Not a dataset path: {dataset_path}")
+    site_dataset_metadata = SiteDatasetMetadata.fromstr(dataset_path.name)
+    return site_dataset_metadata.nwp_model
 
 
 def get_site_id(dataset_path: Path):
-    import re
-    # pattern = re.compile(r'\d+_(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).nc|.*(DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS).*.nc')
-    pattern = re.compile(r'(\d+)_(DWD_NCEP|DWD_ICON-EU|FMI_HIRLAM|NCEP_GFS|MEPS|MetNo_MEPS|ECMWF_EPS-CF|DWD_ECMWF_NCEP).nc')
-    m = re.match(pattern, dataset_path.name)
-    if m is not None:
-        site_id, model, = m.groups()
-        return site_id
-    else:
-        print(f"Could not determine site id from path path: {dataset_path}, loading dataset")
-        with xr.open_dataset(dataset_path) as ds:
-            site_id = ds.attrs['site_id']  # This is the most
-            return site_id
+    site_dataset_metadata = SiteDatasetMetadata.fromstr(dataset_path.name)
+    return site_dataset_metadata.site_id
 
 
 def get_reference_time(site_dataset_path: Path):
@@ -645,10 +649,12 @@ DEFAULT_DATASET_CONFIG = DatasetConfig(horizon=30,
                                        include_variable_info=True,
                                        )
 
+
+
 def main():
     import matplotlib.pyplot as plt
-    start_ref_time = np.datetime64('2019-01-01', 'h')
-    reference_times = start_ref_time + np.arange(6000)*np.timedelta64(1, 'h')
+    start_ref_time = np.datetime64('2019-04-01', 'h')
+    reference_times = start_ref_time + np.arange(100)*np.timedelta64(6, 'h')
     artists = None
     for i, (test_times, full_train_times) in enumerate(k_fold_split_reference_times(reference_times, 10, 12)):
         valid_times, train_times = distance_split_reference_times(test_times, full_train_times, 0.1, 12)
