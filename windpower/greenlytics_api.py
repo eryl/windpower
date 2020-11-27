@@ -316,6 +316,9 @@ def download_coords(dest, coordinates, model_name, variables, api_key,
     elif not isinstance(end_date, datetime.datetime):
         end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
+    if start_date > end_date:
+        raise ValueError(f"Start date {start_date} is after end date {end_date}")
+
     check_params(model_name, variables, freq, start_date)
     coord_chunks = []
     sorted_coords = list(sorted(coordinates, key=lambda x: (x['latitude'], x['longitude'])))
