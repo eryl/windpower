@@ -10,7 +10,8 @@ import xarray as xr
 from pathlib import Path
 from tqdm import tqdm
 
-from windpower.greenlytics_api import parse_filename
+from windpower.greenlytics_api import GreenlyticsModelDataset
+from windpower.dataset import SiteDatasetMetadata
 
 bad_nwp_dates = defaultdict(Counter)
 
@@ -33,8 +34,8 @@ def main():
 
     weather_coordinate_files = dict()
     for f in args.weather_dataset_dir.glob('*.nc'):
-        nwp_params = parse_filename(f)
-        weather_coordinate_files[(nwp_params['latitude'], nwp_params['longitude'])] = (f, nwp_params['model'])
+        nwp_params = GreenlyticsModelDataset.fromstring(f.name)
+        weather_coordinate_files[(nwp_params.latitude, nwp_params.longitude)] = (f, nwp_params.model)
 
     production_data = pd.read_csv(args.production_data, sep=',', parse_dates=True, index_col=0, header=0, skiprows=[1])
     production_data.index.name = 'production_time'
@@ -50,7 +51,8 @@ def main():
         except KeyError:
             print(f"No weather data found for site at {lat},{lon}")
             continue
-        site_data_path = args.output_dir / '{}_{}.nc'.format(site, weather_model)
+        site_dataset_metadata = SiteDatasetMetadata(site_id=site, nwp_model=weather_model)
+        site_data_path = args.output_dir / f'{str(site_dataset_metadata)}.nc'
         if site_data_path.exists() and not args.overwrite:
             print(f"Skipping site {site} since the file exists")
         site_production = production_data[site].dropna()
