@@ -3,11 +3,12 @@ import numpy as np
 import argparse
 from pathlib import Path
 from tqdm import tqdm
-import multiprocessing
+#import multiprocessing
 import functools
-#import multiprocessing.dummy as multiprocessing
+from collections import defaultdict
+import multiprocessing.dummy as multiprocessing
 
-from windpower.dataset import get_nwp_model_from_path
+from windpower.greenlytics_api import WIND_SPEED_PAIRS, prefix_split_variable, prefix_merge_variable
 
 def main():
     parser = argparse.ArgumentParser(description="Add polar windspeeds for datasets")
@@ -26,49 +27,27 @@ def main():
 
 def process_dataset(f, output_dir=None, overwrite=False):
     ds = xr.open_dataset(f)
-    nwp_model = get_nwp_model_from_path(f)
     do_write = False
-    if nwp_model == "DWD_ICON-EU":
-        if 'phi' not in ds.variables:
-            ds['r'], ds['phi'] = polar_windspeed(ds, 'U', 'V')
-            do_write = True
-    elif nwp_model == 'FMI_HIRLAM':
-        if 'phi' not in ds.variables:
-            ds['r'], ds['phi'] = polar_windspeed(ds, 'WindUMS', 'WindVMS')
-            do_write = True
-    elif nwp_model == 'NCEP_GFS':
-        if 'phi' not in ds.variables:
-            ds['r'], ds['phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
-            do_write = True
-    elif nwp_model == 'MetNo_MEPS':
-        if 'phi_z' not in ds.variables:
-            ds['r_z'], ds['phi_z'] = polar_windspeed(ds, 'x_wind_z', 'y_wind_z')
-            ds['r_10m'], ds['phi_10m'] = polar_windspeed(ds, 'x_wind_10m', 'y_wind_10m')
-            do_write = True
-    elif nwp_model == 'DWD_NCEP':
-        if 'dwd_phi' not in ds.variables:
-            ds['dwd_r'], ds['dwd_phi'] = polar_windspeed(ds, 'U', 'V')
-            do_write = True
-        if 'ncep_phi' not in ds.variables:
-            ds['ncep_r'], ds['ncep_phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
-            do_write = True
-    elif nwp_model == 'ECMWF_EPS-CF' or nwp_model == 'ECMWF_HRES':
-        if 'phi_10' not in ds.variables:
-            ds['r_10'], ds['phi_10'] = polar_windspeed(ds, 'u10', 'v10')
-            ds['r_100'], ds['phi_100'] = polar_windspeed(ds, 'u100', 'v100')
-            do_write = True
+    variables_and_prefix = defaultdict(set)
+    for variable in ds.variables:
+        parts = prefix_split_variable(variable)
+        try:
+            prefix, var = parts
+        except ValueError:
+            prefix = None
+            var = parts[0]
+        variables_and_prefix[prefix].add(var)
 
-    elif nwp_model == 'DWD_ECMWF_NCEP':
-        if 'dwd_phi' not in ds.variables:
-            ds['dwd_r'], ds['dwd_phi'] = polar_windspeed(ds, 'U', 'V')
-            do_write = True
-        if 'ncep_phi' not in ds.variables:
-            ds['ncep_r'], ds['ncep_phi'] = polar_windspeed(ds, 'WindUMS_Height', 'WindVMS_Height')
-            do_write = True
-        if 'ec_phi_10' not in ds.variables:
-            ds['ec_r_10'], ds['ec_phi_10'] = polar_windspeed(ds, 'u10', 'v10')
-            ds['ec_r_100'], ds['ec_phi_100'] = polar_windspeed(ds, 'u100', 'v100')
-            do_write = True
+    for u_name, v_name in WIND_SPEED_PAIRS:
+        for prefix, vars in variables_and_prefix.items():
+            if u_name in vars and v_name in vars:
+                prefixed_u_name = prefix_merge_variable(prefix, u_name)
+                prefixed_v_name = prefix_merge_variable(prefix, v_name)
+                name = f'{u_name}_{v_name}'
+                r, phi = polar_windspeed(ds, prefixed_u_name, prefixed_v_name)
+                ds[prefix_merge_variable(prefix, f'r_{name}')] = r
+                ds[prefix_merge_variable(prefix, f'phi_{name}')] = phi
+                do_write = True
 
     if do_write:
         if output_dir is not None:
