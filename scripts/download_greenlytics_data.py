@@ -11,7 +11,8 @@ def main():
                                             'and latitude pairs to download data for', type=Path)
     parser.add_argument('data_dir', help='Directory to store data to', type=Path)
 
-    parser.add_argument('model', help='The dataset model to use', choices=[model.identifier for model in windpower.greenlytics_api.MODELS])
+    parser.add_argument('model', help='The dataset model to use',
+                        choices=[model.identifier for model in windpower.greenlytics_api.BASE_MODELS])
     parser.add_argument('--api-key', help='Path to the api key file', default='../api_key')
     parser.add_argument('--rate-limit', help='Maximum number of requests per minute', type=int, default=5)
     parser.add_argument('--ref-times-per-request',
