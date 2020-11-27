@@ -263,7 +263,68 @@ BASE_MODELS = [
                      ]),
 ]
 
+
+# These pairs are used to determine what to use to produce polar coordinates
+WIND_SPEED_PAIRS = [("U", "V"),
+                    ("u10", "v10"),
+                    ("u100", "v100"),
+                    ("u200", "v200"),
+                    ("x_wind_10m", "y_wind_10m"),
+                    ("x_wind_z", "y_wind_z"),
+                    ("WindUMS_Height", "WindVMS_Height"),
+                    ("WindUMS", "WindVMS"),]
+
+
+from itertools import chain, combinations
+
+
+def prefix_split_variable(variable):
+    return variable.split('$')
+
+
+def get_variable_prefix(variable):
+    return prefix_split_variable(variable)[0]
+
+
+def prefix_merge_variable(prefix, variable):
+    if prefix is not None:
+        return prefix + '$' + variable
+    else:
+        return variable
+
+
+def merge_models(models):
+    sorted_models = list(sorted(models, key=lambda model: model.identifier))
+    new_model_indentifier = '#'.join(model.identifier for model in sorted_models)
+    variables = []
+    default_variables = []
+    for model in sorted_models:
+        variables.extend([prefix_merge_variable(model.identifier, variable) for variable in model.variables])
+        default_variables.extend([prefix_merge_variable(model.identifier, variable) for variable in model.default_variables])
+
+    base_frequency = max(model.base_frequency for model in models)
+    start_date = max(model.start_date for model in models)
+
+    merged_model = GreenLyticsModel(model_name=new_model_indentifier,
+                                    identifier=new_model_indentifier,
+                                    start_date=start_date,
+                                    variables=variables,
+                                    default_variables=default_variables,
+                                    base_frequency=base_frequency)
+    return merged_model
+
+
+def powerset(iterable):
+    "nonempty_powerset([1,2,3]) --> (1,2) (1,3) (2,3) (1,2,3)"
+    s = list(iterable)
+    return chain.from_iterable(combinations(s, r) for r in range(2, len(s)+1))
+
+
+MERGED_MODELS = [merge_models(models) for models in powerset(BASE_MODELS)]
+MODELS = BASE_MODELS + MERGED_MODELS
+
 MODEL_MAP = {model.model_name: model for model in MODELS}
+
 
 def check_params(model_name, variables, freq, start_date):
     """Check that the chosen variables and frequency is ok for the selected model_name"""
