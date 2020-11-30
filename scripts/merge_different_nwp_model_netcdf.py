@@ -47,8 +47,9 @@ def main():
 
             merged_dataset = xr.combine_by_coords(datasets,  join='inner')
             merged_dataset.attrs['nwp_model'] = merged_nwp_model.identifier
-            args.output_dir.mkdir(exist_ok=True, parents=True)
-            output_path = args.output_dir / f"{merged_nwp_model.identifier}_{lat},{lon}.nc"
+            output_dir = args.output_dir / merged_nwp_model.identifier
+            output_dir.mkdir(exist_ok=True, parents=True)
+            output_path = output_dir / f"{merged_nwp_model.identifier}_{lat},{lon}.nc"
             if output_path.exists() and not args.overwrite:
                 print(f"Not overwriting {output_path}, file exists")
             else:
