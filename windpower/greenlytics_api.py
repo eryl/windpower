@@ -49,7 +49,7 @@ class GreenlyticsModelDataset:
         date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
         full_date_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt})--({date_fmt}).*"
         start_date_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt}).*"
-        nondate_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt}).*"
+        nondate_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt}).*"
         m = re.match(full_date_pattern, str)
         if m is not None:
             model, latitude, longitude, start_date, end_date = m.groups()
