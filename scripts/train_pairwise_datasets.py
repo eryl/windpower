@@ -51,10 +51,10 @@ def main():
             site_list = [site_a, site_b]
             site_a_model = get_nwp_model(site_a)
             site_b_model = get_nwp_model(site_b)
-            if frozenset((site_a_model, site_b_model)) in exclude_pairs:
-                print(f"Excluding pair ({site_a_model}, {site_b_model})")
+            if frozenset((site_a_model.identifier, site_b_model.identifier)) in exclude_pairs:
+                print(f"Excluding pair ({site_a_model.identifier}, {site_b_model.identifier})")
                 continue
-            output_dir = args.output_dir / f'{site_a_model}-vs-{site_b_model}'
+            output_dir = args.output_dir / f'{site_a_model.identifier}-vs-{site_b_model.identifier}'
             splits_file = make_site_splits(site_id, site_paths, output_dir, split_config)
             train(site_files=site_list,
                   splits_files_list=[splits_file],
