@@ -56,8 +56,8 @@ class GreenlyticsModelDataset:
             start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d %H')
             end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d %H')
             return GreenlyticsModelDataset(model=MODEL_MAP[model],
-                                           latitude=latitude,
-                                           longitude=longitude,
+                                           latitude=float(latitude),
+                                           longitude=float(longitude),
                                            start_date=start_date,
                                            end_date=end_date)
         else:
@@ -66,16 +66,16 @@ class GreenlyticsModelDataset:
                 model, latitude, longitude, start_date = m.groups()
                 start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d %H')
                 return GreenlyticsModelDataset(model=MODEL_MAP[model],
-                                               latitude=latitude,
-                                               longitude=longitude,
+                                               latitude=float(latitude),
+                                               longitude=float(longitude),
                                                start_date=start_date)
             else:
                 m = re.match(nondate_pattern, str)
                 if m is not None:
                     model, latitude, longitude = m.groups()
                     return GreenlyticsModelDataset(model=MODEL_MAP[model],
-                                                   latitude=latitude,
-                                                   longitude=longitude)
+                                                   latitude=float(latitude),
+                                                   longitude=float(longitude))
                 else:
                     raise ValueError(f"Not a valid NWP dataset string: {str}")
 
