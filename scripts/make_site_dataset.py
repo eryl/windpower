@@ -57,7 +57,7 @@ def main():
             site_data_path = output_dir / f'{str(site_dataset_metadata)}.nc'
 
             if site_data_path.exists() and not args.overwrite:
-                print(f"Skipping site {site} since the file exists")
+                print(f"Skipping site {site} since the file {site_data_path} exists")
 
             site_dataset = xr.open_dataset(weather_file)
             site_dataset['site_production'] = normalized_site_production_dataarray
