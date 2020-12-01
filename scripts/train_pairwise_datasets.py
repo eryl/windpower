@@ -22,9 +22,10 @@ def main():
     split_config = load_config(args.training_config, SplitConfig)
 
     exclude_pairs = set()
-    for pair in args.exclude_pairs:
-        a, b = pair.split(',')
-        exclude_pairs.add(frozenset((a, b)))
+    if args.exclude_pairs is not None:
+        for pair in args.exclude_pairs:
+            a, b = pair.split(',')
+            exclude_pairs.add(frozenset((a, b)))
 
     datasets = []
     for dataset_path in args.dataset_dirs:
