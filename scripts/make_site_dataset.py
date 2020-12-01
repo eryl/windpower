@@ -32,7 +32,7 @@ def main():
         sites = [site.strip() for site in fp if site.strip()]
 
     weather_coordinate_files = defaultdict(list)
-    for f in args.weather_dataset_dir.glob('*.nc'):
+    for f in args.weather_dataset_dir.glob('**/*.nc'):
         nwp_params = GreenlyticsModelDataset.fromstring(f.name)
         nwp_latitidue = round(nwp_params.latitude, args.coords_precision)
         nwp_longitude = round(nwp_params.longitude, args.coords_precision)
