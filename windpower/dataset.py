@@ -363,9 +363,9 @@ class SiteDataset(object):
         self.reference_time = reference_time
         self.variables_config = variables_config
         self.dataset_config = dataset_config
-        self.weather_variables = variables_config.weather_variables[self.nwp_model]
-        self.variable_definitions = variables_config.variable_definitions[self.nwp_model]
-        self.production_variable = variables_config.production_variable[self.nwp_model]
+        self.weather_variables = variables_config.weather_variables[self.nwp_model.identifier]
+        self.variable_definitions = variables_config.variable_definitions[self.nwp_model.identifier]
+        self.production_variable = variables_config.production_variable[self.nwp_model.identifier]
         self.horizon = dataset_config.horizon
         self.window_length = dataset_config.window_length
         self.production_offset = dataset_config.production_offset
