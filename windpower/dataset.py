@@ -118,7 +118,7 @@ class SiteDatasetMetadata:
     site_id: str
 
     def __str__(self):
-        return f'{self.site_id}_{self.nwp_model}'
+        return f'{self.site_id}_{self.nwp_model.identifier}'
 
     @classmethod
     def fromstr(cls, s):
