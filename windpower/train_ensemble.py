@@ -94,7 +94,7 @@ def train(*,
 
         nwp_model = get_nwp_model_from_path(site_dataset_path)
 
-        site_dir = experiment_dir / ml_model / site_id / nwp_model / timestamp()
+        site_dir = experiment_dir / ml_model / site_id / nwp_model.identifier / timestamp()
         site_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(config_path, site_dir / 'config.py')
         site_metadata = copy.deepcopy(metadata)
@@ -287,7 +287,7 @@ def gather_experiment_data(experiment):
         site_id = get_site_id(site_dataset_path)
         nwp_model = get_nwp_model_from_path(site_dataset_path)
         experiment_data['site_id'] = site_id
-        experiment_data['nwp_model'] = nwp_model
+        experiment_data['nwp_model'] = nwp_model.identifier
         try:
             experiment_data['model'] = metadata['model_metadata']['model']
             model_kwargs = metadata['model_metadata']['kwargs']
