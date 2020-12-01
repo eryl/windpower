@@ -16,66 +16,65 @@ from windpower.dataset import SiteDatasetMetadata
 bad_nwp_dates = defaultdict(Counter)
 
 def main():
-    parser = argparse.ArgumentParser(description="Test the dataset")
+    parser = argparse.ArgumentParser(description="Create site datasets. A dataset will be created for each nwp dataset which matches the given site coordinates")
     parser.add_argument('site_metadata', type=Path)
     parser.add_argument('sites_file', type=Path)
     parser.add_argument('weather_dataset_dir', type=Path)
     parser.add_argument('production_data', type=Path)
-    parser.add_argument('output_dir', type=Path)
+    parser.add_argument('output_dir', help='Where to write site files. A subdirectory with the nwp model identifier will also be created.', type=Path)
+    parser.add_argument('--coords-precision', help="Truncate coordinates to this precision", type=int, default=3)
     parser.add_argument('--overwrite', action='store_true')
 
     args = parser.parse_args()
-    args.output_dir.mkdir(exist_ok=True)
 
-    #weather_dataset = xr.open_dataset(args.weather_dataset)
-    metadata = pd.read_excel(args.site_metadata).dropna(thresh=15)  # The metadata file is 16 columns, one have some missing vnalues which doesn't matter
+    metadata = pd.read_csv(args.site_metadata)
     with open(args.sites_file) as fp:
         sites = [site.strip() for site in fp if site.strip()]
 
-    weather_coordinate_files = dict()
+    weather_coordinate_files = defaultdict(list)
     for f in args.weather_dataset_dir.glob('*.nc'):
         nwp_params = GreenlyticsModelDataset.fromstring(f.name)
-        weather_coordinate_files[(nwp_params.latitude, nwp_params.longitude)] = (f, nwp_params.model)
+        nwp_latitidue = round(nwp_params.latitude, args.coords_precision)
+        nwp_longitude = round(nwp_params.longitude, args.coords_precision)
+        weather_coordinate_files[(nwp_latitidue, nwp_longitude)].append((f, nwp_params.model))
 
-    production_data = pd.read_csv(args.production_data, sep=',', parse_dates=True, index_col=0, header=0, skiprows=[1])
-    production_data.index.name = 'production_time'
+    production_data = pd.read_csv(args.production_data, parse_dates=True, index_col=0, header=0)
     production_data.index = production_data.index.astype('datetime64[ns]')  #parse_dates adds timezone info, which is incompatible with the xarray conversion
-    capacities = pd.read_csv(args.production_data, sep=',', parse_dates=True, index_col=0, header=0, nrows=1)
-
+    capacities = {str(row['LP']): row['Maxeffekt'] for i, row in metadata.iterrows()}
     for site in tqdm(sites):
-        site_row = metadata[metadata['LP'] == site]
-        lat = float(site_row['Lat'])
-        lon = float(site_row['Lon'])
-        try:
-            weather_file, weather_model = weather_coordinate_files[(lat, lon)]
-        except KeyError:
-            print(f"No weather data found for site at {lat},{lon}")
-            continue
-        site_dataset_metadata = SiteDatasetMetadata(site_id=site, nwp_model=weather_model)
-        site_data_path = args.output_dir / f'{str(site_dataset_metadata)}.nc'
-        if site_data_path.exists() and not args.overwrite:
-            print(f"Skipping site {site} since the file exists")
+        site_row = metadata[metadata['LP'] == int(site)]
+        lat = round(float(site_row['Lat']), args.coords_precision)
+        lon = round(float(site_row['Lon']), args.coords_precision)
         site_production = production_data[site].dropna()
-        site_capacity = capacities[site].to_numpy()
+        site_capacity = capacities[site]
         normalized_site_production = (site_production / site_capacity).clip(0, 1)
         normalized_site_production_dataarray = xr.DataArray(normalized_site_production)
 
-        site_dataset = xr.open_dataset(weather_file)
-        site_dataset['site_production'] = normalized_site_production_dataarray
-        site_dataset.attrs['site_id'] = site
-        site_dataset.attrs['capacity'] = site_capacity[0]
-        site_dataset.attrs['latitude'] = lat
-        site_dataset.attrs['longitude'] = lon
-        try:
-            site_dataset = setup_xref(site_dataset)
-        except ValueError:
-            print(f"Can't make site dataset for {site} with weather file {weather_file}, the date ranges do not overlap")
-            continue
-        except KeyError as e:
-            print(f"Can't make site dataset for {site} with weather file {weather_file}, received key error {e}")
-            continue
+        for weather_file, weather_model in weather_coordinate_files[(lat, lon)]:
+            site_dataset_metadata = SiteDatasetMetadata(site_id=site, nwp_model=weather_model)
+            output_dir = args.output_dir / weather_model.identifier
+            output_dir.mkdir(exist_ok=True, parents=True)
+            site_data_path = output_dir / f'{str(site_dataset_metadata)}.nc'
 
-        site_dataset.to_netcdf(site_data_path)
+            if site_data_path.exists() and not args.overwrite:
+                print(f"Skipping site {site} since the file exists")
+
+            site_dataset = xr.open_dataset(weather_file)
+            site_dataset['site_production'] = normalized_site_production_dataarray
+            site_dataset.attrs['site_id'] = site
+            site_dataset.attrs['capacity'] = site_capacity
+            site_dataset.attrs['latitude'] = lat
+            site_dataset.attrs['longitude'] = lon
+            try:
+                site_dataset = setup_xref(site_dataset)
+            except ValueError:
+                print(f"Can't make site dataset for {site} with weather file {weather_file}, the date ranges do not overlap")
+                continue
+            except KeyError as e:
+                print(f"Can't make site dataset for {site} with weather file {weather_file}, received key error {e}")
+                continue
+
+            site_dataset.to_netcdf(site_data_path)
     with open('/tmp/bad_dwd_dates.txt', 'w') as fp:
         for date, variable_counts in bad_nwp_dates.items():
             fp.write('{},{}\n'.format(date, ','.join(['{}:{}'.format(v,c) for v,c in sorted(variable_counts.items())])))
