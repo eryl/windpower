@@ -505,7 +505,10 @@ class SiteDataset(object):
 
     def __getitem__(self, item):
         if not hasattr(self, 'windows'):
-            self.make_memdataset()
+            try:
+                self.make_memdataset()
+            except:
+                print(f"Error calling make_memdataset for {self.dataset_path} with variables config {self.variables_config}")
         data = dict(x=self.windows[item],
                     y=self.targets[item])
         if self.include_variable_info:
