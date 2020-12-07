@@ -45,7 +45,7 @@ class GreenlyticsModelDataset:
     @classmethod
     def fromstring(cls, str):
         coord_fmt = r"\d+\.\d+"
-        model_fmt = '|'.join(model.identifier for model in MODELS)
+        model_fmt = '|'.join(model.identifier for model in reversed(MODELS))
         date_fmt = r"\d\d\d\d-\d\d-\d\d \d\d"
         full_date_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt})--({date_fmt}).*"
         start_date_pattern = rf"({model_fmt})_({coord_fmt}),({coord_fmt})_({date_fmt}).*"

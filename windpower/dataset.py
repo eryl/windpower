@@ -123,7 +123,7 @@ class SiteDatasetMetadata:
     @classmethod
     def fromstr(cls, s):
         import re
-        model_pattern = '|'.join(model.identifier for model in MODELS)
+        model_pattern = '|'.join(model.identifier for model in reversed(MODELS))
         pattern = re.compile(rf'(.*)_({model_pattern}).*')
         m = re.match(pattern, s)
         if m is not None:
@@ -509,7 +509,7 @@ class SiteDataset(object):
                 self.make_memdataset()
             except:
                 print(f"Error calling make_memdataset for {self.dataset_path} with variables config {self.variables_config}")
-                raise 
+                raise
         data = dict(x=self.windows[item],
                     y=self.targets[item])
         if self.include_variable_info:
