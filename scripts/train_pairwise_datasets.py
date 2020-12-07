@@ -34,10 +34,10 @@ def main():
         elif dataset_path.suffix == '.nc':
             datasets.append(dataset_path)
 
-    site_datasets = defaultdict(list)
+    site_datasets = defaultdict(set)
     for dataset_path in datasets:
         site_id = get_site_id(dataset_path)
-        site_datasets[site_id].append(dataset_path)
+        site_datasets[site_id].add(dataset_path)
 
     if args.site_filter is not None:
         with open(args.site_filter) as fp:
@@ -51,11 +51,15 @@ def main():
             site_list = [site_a, site_b]
             site_a_model = get_nwp_model(site_a)
             site_b_model = get_nwp_model(site_b)
+
             if frozenset((site_a_model.identifier, site_b_model.identifier)) in exclude_pairs:
                 print(f"Excluding pair ({site_a_model.identifier}, {site_b_model.identifier})")
                 continue
+            if site_a_model.identifier == site_b_model.identifier:
+                print(f"Excluding {site_a}, {site_b}, they are the same NWP model")
+                continue
             output_dir = args.output_dir / f'{site_a_model.identifier}-vs-{site_b_model.identifier}'
-            splits_file = make_site_splits(site_id, site_paths, output_dir, split_config)
+            splits_file = make_site_splits(site_id, list(site_paths), output_dir, split_config)
             train(site_files=site_list,
                   splits_files_list=[splits_file],
                   experiment_dir=output_dir,
