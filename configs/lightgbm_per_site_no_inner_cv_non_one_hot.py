@@ -7,10 +7,15 @@ from windpower.models import ModelConfig, LightGBMWrapper
 
 import mltrain.train
 
+production_horizon = 36
+production_offset = 3
+window_length = 7
+horizon = production_horizon + (window_length-production_offset)  # Add enough hours to fit all the windows
+
 dataset_config = DatasetConfig(
-    window_length=7,
-    production_offset=3,
-    horizon=36,
+    window_length=window_length,
+    production_offset=production_offset,
+    horizon=horizon,
     include_variable_info=True,
 )
 
