@@ -473,8 +473,8 @@ class SiteDataset(object):
             # We need to reshape the encoded values so that each lead time will be added at each window
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, -1)
             var_length = encoded_values.shape[-1]
-            var_end += var_length * self.window_length
-            var_info['lead_time'] = ((var_start, var_start+1, var_def.type))
+            var_end += var_length
+            var_info['lead_time'] = ((var_start, var_end, var_def.type))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         if 'time_of_day' in self.weather_variables:
@@ -487,8 +487,8 @@ class SiteDataset(object):
             encoded_values = var_def.encode(hour_of_day)
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, - 1)
             var_length = encoded_values.shape[-1]
-            var_end += var_length * self.window_length
-            var_info['time_of_day'] = ((var_start, var_start + 1, var_def.type))
+            var_end += var_length
+            var_info['time_of_day'] = ((var_start, var_end, var_def.type))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         self.windows = self.feature_vectors.reshape(n_ref_times*self.n_windows_per_forecast, -1)
@@ -516,23 +516,6 @@ class SiteDataset(object):
             data['variable_info'] = self.variable_info
         return data
 
-
-
-class MultiSiteDataset(object):
-    def __init__(self, datasets, *, window_length, production_offset, horizon=None,
-                 weather_variables=None, production_variable='site_production'):
-        self.datasets = [SiteDatasetOld(dataset_path=d, window_length=window_length, production_offset=production_offset,
-                                        horizon=horizon, weather_variables=weather_variables,
-                                        production_variable=production_variable) for d in datasets]
-        self.window_length = window_length
-        self.horizon = horizon
-        self.production_offset = production_offset
-        self.weather_variables = weather_variables
-        self.production_variable = production_variable
-        self.n = sum(len(d) for d in self.datasets)
-
-    def __getitem__(self, item):
-        ...
 
 
 DEFAULT_VARIABLE_CONFIG = VariableConfig(production_variable={
