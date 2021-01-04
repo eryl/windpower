@@ -23,3 +23,15 @@ There are three main configurations:
     measurement to predict and so on
   - Variable definition: This defines what variables from the NWP should be used and how they should be encoded.
   - Training config: This defines how the training should be performed, such as cross validation strategy
+
+
+# Getting started
+First create a coordinate specification csv (assuming a POSIX system)
+
+# printf "Latitude,Longitude\n65.584819,22.1567026" > data/lulea_coords.csv
+
+This creates a csv with two rows, the first is the header with column names and the second is the coordinates
+
+Now use this coordinates file to download the NWP data:
+
+# python scripts/download_greenlytics_data.py data/lulea_coords.csv data/nwp_data DWD_ICON-EU

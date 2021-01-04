@@ -4,6 +4,8 @@ import itertools
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+import scipy.stats
+
 
 #plt.rc('text', usetex=True)
 #plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
@@ -27,7 +29,8 @@ def main():
 
     models = set()
 
-    model_pair_performance = defaultdict(list)
+    model_pair_performance = defaultdict(lambda: defaultdict(list))
+    #model_pair_performance = defaultdict(list)
     for performance_file in args.performance_files:
         performance = pd.read_csv(performance_file)
         site_ids = set(performance['site_id'])
@@ -41,14 +44,68 @@ def main():
                 fold_performances = site_performance[site_performance['outer_fold_id'] == fold_id]
                 model_a_performance = fold_performances[fold_performances['nwp_model'] == model_a][args.performance_metric]
                 model_b_performance = fold_performances[fold_performances['nwp_model'] == model_b][args.performance_metric]
-                model_pair_performance[(model_a, model_b)].append((1 - model_a_performance.mean()/model_b_performance.mean()))
-                model_pair_performance[(model_b, model_a)].append((1 - model_b_performance.mean()/model_a_performance.mean()))
-                #model_pair_performance[(model_a, model_b)].append(model_a_performance.mean() - model_b_performance.mean())
-                #model_pair_performance[(model_b, model_a)].append(model_b_performance.mean() - model_a_performance.mean())
+                #model_pair_performance[(model_a, model_b)].append((1 - model_a_performance.mean()/model_b_performance.mean()))
+                #model_pair_performance[(model_b, model_a)].append((1 - model_b_performance.mean()/model_a_performance.mean()))
+                model_pair_performance[frozenset((model_a, model_b))][model_a].append(model_a_performance.mean())
+                model_pair_performance[frozenset((model_a, model_b))][model_b].append(model_b_performance.mean())
 
-    make_grid_histograms(models, model_pair_performance, args.performance_metric, args.output_dir)
+    #make_wald_test(model_pair_performance)
+    #paired_difference(model_pair_performance)
+    #make_grid_histograms(models, model_pair_performance, args.performance_metric, args.output_dir)
     #make_box_plots(models, model_pair_performance, args.performance_metric, args.output_dir)
+    plot_histograms(model_pair_performance)
     plt.show()
+
+
+def paired_difference(model_pair_performance):
+    for (model_a, model_b), skills in model_pair_performance.items():
+
+        p = (np.array(skills) > 0).sum()/len(skills)
+        print(f"Probability that {model_a} outperforms {model_b}: {p}")
+
+
+def plot_histograms(model_pair_performance):
+    n_pairs = len(model_pair_performance)
+    fig, axes = plt.subplots(nrows=n_pairs, squeeze=False)
+
+    for ax, ((model_a, model_b), performances) in zip(axes.flatten(), model_pair_performance.items()):
+        a = performances[model_a]
+        b = performances[model_b]
+        #statistic, pvalue = scipy.stats.ttest_ind(a, b, axis=0, equal_var=False, nan_policy='propagate')
+        #print(f"Model a: {model_a}, model b: {model_b}: t-statistic: {statistic}, p-value: {pvalue}")
+        a_w_1 = nonparametric_effect_size(a, b)
+        a_w_2 = nonparametric_effect_size(b, a)
+        print(f"Probability that {model_a} performs worse than {model_b}: {a_w_1}")
+        print(f"Probability that {model_b} performs worse than {model_a}: {a_w_2}")
+        #dist_plot = sns.distplot(a, bins=20, kde=False, ax=ax, label=model_a)
+        #dist_plot = sns.distplot(b, bins=20, kde=False, ax=ax, label=model_b)
+        dist_plot = sns.kdeplot(a, ax=ax, label=model_a, legend=False)
+        dist_plot = sns.kdeplot(b, ax=ax, label=model_b, legend=False)
+    fig.legend(loc='upper right')
+
+
+def make_wald_test(model_pair_performance):
+    for (model_a, model_b), performances in model_pair_performance.items():
+        a = performances[model_a]
+        b = performances[model_b]
+        statistic, pvalue = scipy.stats.ttest_ind(a, b, axis=0, equal_var=False, nan_policy='propagate')
+        print("")
+
+
+def nonparametric_effect_size(a, b):
+    """Implementation of Cliff's delta d, but ties add a count of 0.5"""
+
+    a = np.array(a)
+    b = np.array(b)
+    total_count = 0
+    for x in a:
+        higher_count = (x > b).sum() + (x == b).sum()/2
+        total_count += higher_count
+    A_w = total_count/(len(a)*len(b))
+
+    return A_w
+
+
 
 def make_grid_histograms(models, model_pair_performance, performance_metric, output_dir=None):
     fig, subplots = plt.subplots(len(models), len(models), squeeze=False, sharex='col', sharey='row')
@@ -58,15 +115,22 @@ def make_grid_histograms(models, model_pair_performance, performance_metric, out
     inconclusive = cmap(0.)
     for i, model_a in enumerate(sorted(models)):
         for j, model_b in enumerate(sorted(models)):
+            x_label = model_b
+            y_label = model_a
+            if "#" in model_a:
+                y_label = "Merged models"
+            if "#" in model_b:
+                x_label = "Merged models"
+
             ax = subplots[i, j]
 
             if j == 0:
                 # First column, set y label
-                ax.set_ylabel(model_a, fontsize=10)
+                ax.set_ylabel(y_label, fontsize=10)
 
             if i == len(models) - 1:
                 ## Final row, add x labels
-                ax.set_xlabel(model_b, fontsize=10)
+                ax.set_xlabel(x_label, fontsize=10)
 
             if model_a == model_b:
                 #x_axis = ax.get_xaxis()
@@ -142,4 +206,5 @@ def make_box_plots(models, model_pair_performance, performance_metric, output_di
 
 
 if __name__ == '__main__':
+    #print(nonparametric_effect_size([5, 7, 6, 5], [3, 4, 5, 3]))
     main()
