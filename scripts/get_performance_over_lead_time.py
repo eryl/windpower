@@ -7,9 +7,6 @@ from pathlib import Path
 from tqdm import tqdm
 
 import numpy as np
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 from windpower.dataset import SiteDatasetMetadata
 
