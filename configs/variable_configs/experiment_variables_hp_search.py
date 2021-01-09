@@ -1,6 +1,6 @@
 import numpy as np
 from windpower.dataset import Variable, CategoricalVariable, DiscretizedVariableEvenBins, VariableConfig
-from mltrain.hyperparameter import DiscreteHyperParameter
+from windpower.mltrain.hyperparameter import DiscreteHyperParameter
 
 hp_weather_variables = {
     'DWD_ICON-EU':  DiscreteHyperParameter([

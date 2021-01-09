@@ -1,6 +1,6 @@
 from sklearn.ensemble import RandomForestRegressor
 from windpower.models import SklearnWrapper
-from mltrain.train import DiscreteHyperParameter, IntegerRangeHyperParameter
+from windpower.mltrain.train import DiscreteHyperParameter, IntegerRangeHyperParameter
 
 N_ESTIMATORS = [20, 50, 100, 200, 300]
 MAX_DEPTH = [1, 14]

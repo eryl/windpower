@@ -1,6 +1,6 @@
 from lightgbm import LGBMRegressor
 from windpower.models import LightGBMWrapper, ModelConfig
-from mltrain.hyperparameter import DiscreteHyperParameter, GeometricHyperParameter, IntegerRangeHyperParameter
+from windpower.mltrain.hyperparameter import DiscreteHyperParameter, GeometricHyperParameter, IntegerRangeHyperParameter
 
 n_estimators = 1000 # We're using early stopping, so this doesn't seem to matter much. Most models converge before 100 iterations
 learning_rate = GeometricHyperParameter(0.01, 0.5)

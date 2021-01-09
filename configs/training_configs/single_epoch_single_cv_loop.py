@@ -1,5 +1,5 @@
 from windpower.train_ensemble import TrainConfig
-import mltrain.train
+import windpower.mltrain.train
 
 do_not_save = False
 outer_folds = 10
