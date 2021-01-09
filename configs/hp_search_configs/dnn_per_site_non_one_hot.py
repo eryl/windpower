@@ -58,7 +58,7 @@ model_config = ModelConfig(model=model,
                            model_args=wrapper_args,
                            model_kwargs=wrapper_kwargs)
 
-train_kwargs = windpower.mltrain.train.TrainingConfig(max_epochs=500, keep_snapshots=False)
+train_kwargs = windpower.mltrain.train.TrainingConfig(max_epochs=400, keep_snapshots=False)
 
 outer_folds = 10
 inner_folds = 1

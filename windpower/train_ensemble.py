@@ -24,7 +24,7 @@ from windpower.mltrain.train import TrainingArguments, TrainingConfig
 from windpower.mltrain.hyperparameter import HyperParameterTrainer, HyperParameterManager
 from windpower.utils import load_config
 from windpower.dataset import DatasetConfig, VariableConfig, SplitConfig
-from windpower.models import ModelConfig
+from windpower.models import ModelConfig, load_model
 
 @dataclass
 class HPConfig(object):
@@ -265,11 +265,7 @@ def evaluate_model(test_reference_times,
                                variables_config=settings.variables_config,
                                dataset_config=dataset_config)
 
-    # Loading the model is a bit more complicated than just using pickle
-    model_config = settings.model_config
-    model = model_config.model(*model_config.model_args, **model_config.model_kwargs, test_dataset = test_dataset)
-    model = model.load(best_inner_model_dir / 'best_model')
-
+    model = load_model(best_inner_model_path, test_dataset=test_dataset)
     test_predictions = []
     data = test_dataset[:]
     x = data['x']
@@ -284,7 +280,7 @@ def evaluate_model(test_reference_times,
 
 
 
-def gather_experiment_data(experiment):
+def gather_experiment_data(experiment, lead_time_interval=None):
     experiment_data = dict()
 
     metadata_path = experiment / 'metadata.json'
@@ -300,7 +296,7 @@ def gather_experiment_data(experiment):
             experiment_data['model'] = metadata['model_metadata']['model']
             model_kwargs = metadata['model_metadata']['kwargs']
             for kwarg, value in model_kwargs.items():
-                experiment_data[kwarg] = value
+                experiment_data[kwarg] = str(value)
         except KeyError:
             pass
         try:
@@ -313,33 +309,72 @@ def gather_experiment_data(experiment):
             pass
     best_model_path = experiment / 'best_model'
     if best_model_path.exists():
-        with open(best_model_path, 'rb') as fp:
-            best_model = pickle.load(fp)
-        if isinstance(best_model, windpower.mltrain.train.BaseModel):
-            model_metadata = best_model.get_metadata()
-            for k, v in model_metadata.items():
-                if k == 'args':
-                    for i, arg in enumerate(v):
-                        experiment_data[f'args_{i}'] = arg
-                elif k == 'kwargs':
-                    for kwarg_name, kwarg in v.items():
-                        experiment_data[f'kwarg_{kwarg_name}'] = kwarg
-                else:
-                    experiment_data[k] = v
         try:
-            best_iteration = best_model.best_iteration_
-            experiment_data['best_iteration'] = best_iteration
-        except AttributeError:
+            best_model = load_model(best_model_path)
+            if isinstance(best_model, windpower.mltrain.train.BaseModel):
+                model_metadata = best_model.get_metadata()
+                for k, v in model_metadata.items():
+                    if k == 'args':
+                        for i, arg in enumerate(v):
+                            experiment_data[f'args_{i}'] = arg
+                    elif k == 'kwargs':
+                        for kwarg_name, kwarg in v.items():
+                            experiment_data[f'kwarg_{kwarg_name}'] = kwarg
+                    else:
+                        experiment_data[k] = v
+            try:
+                best_iteration = best_model.best_iteration_
+                experiment_data['best_iteration'] = best_iteration
+            except AttributeError:
+                pass
+        except ValueError:
             pass
-    best_performance_path = experiment / 'best_performance.csv'
-    if best_performance_path.exists():
-        with open(best_performance_path) as in_fp:
-            best_performance = next(
-                iter(DictReader(in_fp)))  # take the first row, it's the only one
-            for k, v in best_performance.items():
-                experiment_data[k] = v
+
+    ## best_performance.csv is the best performance on the validation set, if there's a test_predictions.npz, we should use it
+    test_predictions_path = experiment / 'test_predictions.npz'
+    if test_predictions_path.exists():
+        print("Using test predictions to derive performance data")
+        predictions = np.load(test_predictions_path)
+
+        x = predictions['x']
+        with open(experiment / 'artifacts' / 'settings.pkl', 'rb') as fp:
+            settings = pickle.load(fp)
+        model_variables_path = experiment / 'test_variable_definitions.json'
+        with open(model_variables_path) as fp:
+            model_variables = json.load(fp)
+
+        lead_time_column = model_variables['lead_time'][0]
+        time_of_day_column = model_variables['time_of_day'][0]
+        if time_of_day_column > x.shape[1]:
+            print("Warning, time of day column is higher than number of columns")
+            time_of_day_column = lead_time_column + 1
+
+        y = predictions['y']
+        y_hat = predictions['y_hat']
+
+        if lead_time_interval is not None:
+            # Lead time is for the start of the NWP window, to get the lead time for the production we need to add the production offset
+            production_offset = settings.dataset_config.production_offset
+            lead_time = x[:, lead_time_column] + production_offset
+            time_of_day = x[:, time_of_day_column]
+
+            print(f"Filtering predictions based on lead time {lead_time_interval}")
+            lead_time_mask = np.logical_and(lead_time > lead_time_interval[0], lead_time < lead_time_interval[1])
+            y = y[lead_time_mask]
+            y_hat = y_hat[lead_time_mask]
+
+        mae = np.abs(y - y_hat).mean()
+        experiment_data['mae'] = mae
     else:
-        raise FileNotFoundError("No performance data found")
+        best_performance_path = experiment / 'best_performance.csv'
+        if best_performance_path.exists():
+            with open(best_performance_path) as in_fp:
+                best_performance = next(
+                    iter(DictReader(in_fp)))  # take the first row, it's the only one
+                for k, v in best_performance.items():
+                    experiment_data[k] = v
+        else:
+            raise FileNotFoundError("No performance data found")
 
     fold_reference_times_path = experiment.parent / 'fold_reference_times.npz'
     if fold_reference_times_path.exists():

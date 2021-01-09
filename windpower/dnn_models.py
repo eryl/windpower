@@ -94,7 +94,10 @@ class TorchWrapper(MinibatchModel):
                           shuffle=shuffle, drop_last=False, collate_fn=collate_fn)
 
     def get_metadata(self):
-        return dict()
+        model_params = self.model.get_metadata()
+        return dict(batch_size=self.config.batch_size,
+                    model=self.config.model_class.__name__,
+                    kwargs=model_params)
 
     def fit_batch(self, batch) -> Dict:
         x = batch['x']
@@ -187,6 +190,13 @@ class NNTabularModel(nn.Module):
         self.optim = self.config.optim_class(self.parameters(), *self.config.optim_args,
                                              **self.config.optim_kwargs)  # lr=learning_rate, weight_decay=adam_wd, betas=(adam_beta1, adam_beta2), eps=adam_eps, )
 
+    def get_metadata(self):
+        return dict(n_layers=self.n_layers,
+                    layer_size=self.layer_size,
+                    dropout_p=self.config.dropout_p,
+                    optim_class=self.config.optim_class.__name__,
+                    optim_args=self.config.optim_args,
+                    optim_kwargs=self.config.optim_kwargs)
 
     def forward(self, x):
         x = self.projection_layer(x)  # Make sure x is of the right dimension for the residual connections to work

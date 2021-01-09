@@ -14,6 +14,18 @@ from dataclasses import dataclass
 from typing import Type, Sequence, Mapping
 from windpower.utils import load_config
 
+def load_model(model_path: Path, **kwargs):
+    model_dir = model_path.parent
+    with open(model_dir / 'artifacts' / 'settings.pkl', 'rb') as fp:
+        settings = pickle.load(fp)
+
+    # Loading the model is a bit more complicated than just using pickle
+    model_config = settings.model_config
+    model = model_config.model(*model_config.model_args, **model_config.model_kwargs, **kwargs)
+    model = model.load(model_path)
+    return model
+
+
 @dataclass
 class ModelConfig(object):
     model: Type
@@ -36,7 +48,7 @@ class SklearnWrapper(FullbatchModel):
         self.kwargs = kwargs
 
     def prepare_dataset(self, dataset):
-        return dataset
+        return dataset[:]
 
     def fit_normalizer(self, x, variable_info=None):
         if self.scaling:
@@ -131,10 +143,9 @@ class LightGBMWrapper(SklearnWrapper):
         self.eval_metric = eval_metric
 
     def fit_dataset(self, dataset):
-        batch = dataset[:]
-        x = batch['x']
-        y = batch['y']
-        variable_info = batch.get('variable_info', None)
+        x = dataset['x']
+        y = dataset['y']
+        variable_info = dataset.get('variable_info', None)
         x = self.fit_normalizer(x, variable_info)
         if self.validation_dataset is not None:
             validation_data = self.validation_dataset[:]
