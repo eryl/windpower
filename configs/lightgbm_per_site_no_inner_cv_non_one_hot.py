@@ -5,7 +5,7 @@ from windpower.train_ensemble import HPConfig
 from lightgbm import LGBMRegressor
 from windpower.models import ModelConfig, LightGBMWrapper
 
-import mltrain.train
+import windpower.mltrain.train
 
 production_horizon = 36
 production_offset = 3
@@ -48,7 +48,7 @@ model_config = ModelConfig(model=model,
 
 
 
-train_kwargs = mltrain.train.TrainingConfig(max_epochs=1, keep_snapshots=False)
+train_kwargs = windpower.mltrain.train.TrainingConfig(max_epochs=1, keep_snapshots=False)
 
 outer_folds = 10
 inner_folds = 1

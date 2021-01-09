@@ -6,7 +6,7 @@ from typing import Dict, Any, Tuple
 import numpy as np
 import time
 
-from mltrain.hyperparameter import HyperParameterManager, HyperParameterTrainer, DiscreteHyperParameter, gather_hyper_prams
+from windpower.mltrain.hyperparameter import HyperParameterManager, HyperParameterTrainer, DiscreteHyperParameter, gather_hyper_prams
 
 class TestHyperParameterMaterialization(unittest.TestCase):
     def test_materialize_hyper_parameters(self):

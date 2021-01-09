@@ -2,30 +2,32 @@ import argparse
 import csv
 from csv import DictReader
 import itertools
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+#import matplotlib
+#import matplotlib.pyplot as plt
+#from matplotlib.patches import Patch
 import scipy.stats
-
+from tqdm import tqdm
 
 #plt.rc('text', usetex=True)
 #plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
 #matplotlib.verbose.level = 'debug-annoying'
-params= {'text.latex.preamble' : [r'\usepackage{amsmath}']}
-plt.rcParams.update(params)
+#params= {'text.latex.preamble' : [r'\usepackage{amsmath}']}
+#plt.rcParams.update(params)
 
 import pandas as pd
-import seaborn as sns
+#import seaborn as sns
 from pathlib import Path
 from collections import defaultdict
 import numpy as np
-sns.set(color_codes=True)
+#sns.set(color_codes=True)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('performance_files', type=Path, nargs='+')
     parser.add_argument('--output-file', type=Path)
     parser.add_argument('--performance-metric', help="What column of the performance datasets to use", default='mean_absolute_error')
+    parser.add_argument('--bootstrap-n', type=int, default=10000)
+    parser.add_argument('--ci', type=int, default=99)
     args = parser.parse_args()
 
     performance_files = []
@@ -37,7 +39,7 @@ def main():
     models = set()
 
     model_pair_performance = defaultdict(lambda: defaultdict(list))
-    for performance_file in performance_files:
+    for performance_file in tqdm(performance_files, desc="Reading performance data"):
         performance = pd.read_csv(performance_file)
         site_ids = set(performance['site_id'])
         model_a, model_b = list(sorted(set(performance['nwp_model'])))
@@ -53,21 +55,16 @@ def main():
                 model_pair_performance[frozenset((model_a, model_b))][model_a].append(model_a_performance.mean())
                 model_pair_performance[frozenset((model_a, model_b))][model_b].append(model_b_performance.mean())
 
-    model_as = []
-    model_bs = []
-    mean_a = []
-    mean_b = []
-    std_a = []
-    std_b = []
-    a_higher_than_b = []
-    c_ds = []
 
     if args.output_file is not None:
-        fieldnames = ['model_a', 'model_b', 'mean_a', 'mean_b', 'std_a', 'std_b', 'n_a', 'n_b', 'cliffs_d', 'cohens_d']
+        fieldnames = ['model_a', 'model_b', 'mean_a', 'mean_b', 'std_a', 'std_b', 'n_a', 'n_b', 'cliffs_d', 'cohens_d', 'cliffs_d_bootstrap_low',
+                    'cliffs_d_bootstrap_high',
+                    'cohens_d_bootstrap_low',
+                    'cohens_d_bootstrap_high',]
         with open(args.output_file, 'w') as fp:
             csv_writer = csv.DictWriter(fp, fieldnames=fieldnames)
             csv_writer.writeheader()
-            for (model_a, model_b), performances in model_pair_performance.items():
+            for (model_a, model_b), performances in tqdm(model_pair_performance.items(), desc="Calculating effect size", total=len(model_pair_performance)):
                 a = performances[model_a]
                 b = performances[model_b]
 
@@ -81,17 +78,24 @@ def main():
                 c_d = cohens_d(a,b)
                 print(f"Cohen's d for {model_a}, {model_b}: {c_d}")
 
+                bs_cohens_d, bs_cohens_d_low, bs_cohens_d_high = bootstrapped_ci(a, b, cohens_d, n=args.bootstrap_n, ci=args.ci)
+                bs_cliffs_d, bs_cliffs_d_low, bs_cliffs_d_high = bootstrapped_ci(a, b, nonparametric_effect_size, n=args.bootstrap_n, ci=args.ci)
+
                 csv_writer.writerow({
                     'model_a': model_a,
                     'model_b': model_b,
-                    'mean_a': np.mean(a),
-                    'mean_b': np.mean(b),
-                    'std_a': np.std(a),
-                    'std_b': np.std(b),
-                    'n_a': len(a),
-                    'n_b': len(b),
-                    'cliffs_d': a_w_1,
-                    'cohens_d': c_d
+                    'mean_a': '{:0.3f}'.format(np.mean(a)),
+                    'mean_b': '{:0.3f}'.format(np.mean(b)),
+                    'std_a': '{:0.3f}'.format(np.std(a)),
+                    'std_b': '{:0.3f}'.format(np.std(b)),
+                    'n_a': '{}'.format(len(a)),
+                    'n_b': '{}'.format(len(b)),
+                    'cliffs_d': bs_cliffs_d,
+                    'cliffs_d_bootstrap_low': bs_cliffs_d_low,
+                    'cliffs_d_bootstrap_high': bs_cliffs_d_high,
+                    'cohens_d': bs_cohens_d,
+                    'cohens_d_bootstrap_low': bs_cohens_d_low,
+                    'cohens_d_bootstrap_high': bs_cohens_d_high,
                 })
 
 
@@ -100,6 +104,20 @@ def paired_difference(model_pair_performance):
 
         p = (np.array(skills) > 0).sum()/len(skills)
         print(f"Probability that {model_a} outperforms {model_b}: {p}")
+
+
+def bootstrapped_ci(a, b, effect_size_f, n, ci):
+    effect_sizes = [effect_size_f(bootstrap(a), bootstrap(b)) for i in range(n)]
+    p = 50 - ci / 2, 50 + ci / 2
+    low, high = np.percentile(effect_sizes, p)
+    return np.mean(effect_sizes), low, high
+
+
+def bootstrap(arr, rng=None):
+    if rng is None:
+        rng = np.random.default_rng()
+    resampled = rng.choice(arr, size=len(arr), replace=True)
+    return resampled
 
 
 

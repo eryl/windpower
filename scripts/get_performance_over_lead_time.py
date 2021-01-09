@@ -68,25 +68,26 @@ def main():
             except:
                 continue
 
-        performance_name = 'lead_time_performance.csv'
-        fieldnames = ['nwp_model', 'lead_time', 'time_of_day', 'reference_time', 'y', 'y_hat', 'mae']
+        if model_performances:
+            performance_name = 'lead_time_performance.csv'
+            fieldnames = ['nwp_model', 'lead_time', 'time_of_day', 'reference_time', 'y', 'y_hat', 'mae']
 
-        if args.folder_tag:
-            performance_name = d.name + '_' + performance_name
+            if args.folder_tag:
+                performance_name = d.name + '_' + performance_name
 
-        if args.hostname_tag:
-            import platform
-            hostname = platform.node()
-            performance_name = hostname + '_' + performance_name
+            if args.hostname_tag:
+                import platform
+                hostname = platform.node()
+                performance_name = hostname + '_' + performance_name
 
-        output_dir = args.output_dir
-        if output_dir is None:
-            output_dir = d
+            output_dir = args.output_dir
+            if output_dir is None:
+                output_dir = d
 
-        with open(output_dir / performance_name, 'w') as out_fp:
-            csv_writer = csv.DictWriter(out_fp, fieldnames=fieldnames)
-            csv_writer.writeheader()
-            csv_writer.writerows(model_performances)
+            with open(output_dir / performance_name, 'w') as out_fp:
+                csv_writer = csv.DictWriter(out_fp, fieldnames=fieldnames)
+                csv_writer.writeheader()
+                csv_writer.writerows(model_performances)
 
 
 

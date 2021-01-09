@@ -6,7 +6,7 @@ from typing import Dict, Any, Tuple
 import numpy as np
 import time
 
-from mltrain.train import Monitor, train
+from windpower.mltrain.train import Monitor, train
 
 
 class DummyModel(object):

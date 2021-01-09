@@ -502,6 +502,7 @@ class SiteDataset(object):
         var_def = self.variable_definitions[self.production_variable]
         encoded_targets = var_def.encode(production_values)
         self.targets = encoded_targets
+        self.target_datetime = self.dataset['production_time'][production_indices.flatten()].values
 
     def __getitem__(self, item):
         if not hasattr(self, 'windows'):
@@ -511,124 +512,217 @@ class SiteDataset(object):
                 print(f"Error calling make_memdataset for {self.dataset_path} with variables config {self.variables_config}")
                 raise
         data = dict(x=self.windows[item],
-                    y=self.targets[item])
+                    y=self.targets[item],
+                    target_time=self.target_datetime[item])
         if self.include_variable_info:
             data['variable_info'] = self.variable_info
         return data
 
-
-
-DEFAULT_VARIABLE_CONFIG = VariableConfig(production_variable={
-    'DWD_ICON-EU':  'site_production',
-    "FMI_HIRLAM": 'site_production',
-    "NCEP_GFS":  'site_production',
-    "MetNo_MEPS": 'site_production',
-    "ECMWF_EPS-CF": 'site_production',
-    'DWD_ECMWF_NCEP': 'site_production',
-}, variable_definitions={
-    'DWD_ICON-EU': {'T': Variable('T'),
-                    'U': Variable('U'),
-                    'V': Variable('V'),
-                    'phi': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
-                                                       one_hot_encode=True),
-                    'r': Variable('r'),
-                    'lead_time': Variable('lead_time'),
-                    'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
-                                                       mapping={i: i for i in range(24)},
-                                                       one_hot_encode=True),
-                    'site_production': Variable('site_production'),
-                    },
-    "FMI_HIRLAM": {
-        "Temperature": Variable("Temperature"),
-        "WindUMS": Variable("WindUMS"),
-        "WindVMS": Variable("WindVMS"),
-        'phi': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
-                                           one_hot_encode=True),
-        'r': Variable('r'),
-        'lead_time': Variable('lead_time'),
-        'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
-                                           mapping={i: i for i in range(24)},
-                                           one_hot_encode=True),
-        'site_production': Variable('site_production'),
+DEFAULT_VARIABLES_CONFIG = VariableConfig(
+    production_variable={
+        'DWD_ICON-EU':  'site_production',
+        "FMI_HIRLAM": 'site_production',
+        "NCEP_GFS":  'site_production',
+        "MetNo_MEPS": 'site_production',
+        'DWD_NCEP':  'site_production',
+        "ECMWF_EPS-CF": 'site_production',
+        "ECMWF_HRES": 'site_production',
+        'DWD_ECMWF_NCEP': 'site_production',
+        'DWD_ICON-EU#ECMWF_EPS-CF#ECMWF_HRES#NCEP_GFS' :  'site_production'
     },
-    "NCEP_GFS": {'WindUMS_Height': Variable('WindUMS_Height'),
-                 'WindVMS_Height': Variable('WindVMS_Height'),
-                 'Temperature_Height': Variable('Temperature_Height'),
-                 'PotentialTemperature_Sigma': Variable('PotentialTemperature_Sigma'),
-                 'WindGust': Variable('WindGust'),
-                 'phi': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
-                                                    one_hot_encode=True),
-                 'r': Variable('r'),
-                 'lead_time': Variable('lead_time'),
-                 'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
-                                                    mapping={i: i for i in range(24)},
-                                                    one_hot_encode=True),
-                 'site_production': Variable('site_production'),
-                 },
-    "MetNo_MEPS": {
-        "x_wind_10m": Variable("x_wind_10m"),
-        "y_wind_10m": Variable("y_wind_10m"),
-        "x_wind_z": Variable("x_wind_z"),
-        "y_wind_z": Variable("y_wind_z"),
-        "air_pressure_at_sea_level": Variable("air_pressure_at_sea_level"),
-        "air_temperature_0m": Variable("air_temperature_0m"),
-        "air_temperature_2m": Variable("air_temperature_2m"),
-        "air_temperature_z": Variable("air_temperature_z"),
-        'phi_z': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
-                                           one_hot_encode=True),
-        'r_z': Variable('r'),
-        'phi_10m': DiscretizedVariableEvenBins('phi', (-np.pi, np.pi), 64,
-                                           one_hot_encode=True),
-        'r_10m': Variable('r'),
-        'lead_time': Variable('lead_time'),
-        'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
-                                           mapping={i: i for i in range(24)},
-                                           one_hot_encode=True),
+    variable_definitions={
+        'DWD_ICON-EU': {'T': Variable('T'),
+                        'U': Variable('U'),
+                        'V': Variable('V'),
+                        'phi_U_V': Variable('phi_U_V'),
+                        'r_U_V': Variable('r_U_V'),
+                        'site_production': Variable('site_production'),
+                        'lead_time': Variable('lead_time'),
+                        'time_of_day': Variable('time_of_day')
 
-        'site_production': Variable('site_production'),
+                        },
+        "FMI_HIRLAM": {
+            "Temperature": Variable("Temperature"),
+            "WindUMS": Variable("WindUMS"),
+            "WindVMS": Variable("WindVMS"),
+            'site_production': Variable('site_production'),
+            'lead_time': Variable('lead_time'),
+            'phi': Variable('phi'),
+            'r': Variable('r'),
+            'time_of_day': Variable('time_of_day')
+
+        },
+        "NCEP_GFS": {'WindUMS_Height': Variable('WindUMS_Height'),
+                     'WindVMS_Height': Variable('WindVMS_Height'),
+                     'Temperature_Height': Variable('Temperature_Height'),
+                     'PotentialTemperature_Sigma': Variable('PotentialTemperature_Sigma'),
+                     'WindGust': Variable('WindGust'),
+                     'phi_WindUMS_Height_WindVMS_Height': Variable('phi_WindUMS_Height_WindVMS_Height'),
+                     'r_WindUMS_Height_WindVMS_Height': Variable('r_WindUMS_Height_WindVMS_Height'),
+                     'site_production': Variable('site_production'),
+                     'lead_time': Variable('lead_time'),
+                     'time_of_day': Variable('time_of_day')
+                     },
+        "MetNo_MEPS": {
+            "x_wind_10m": Variable("x_wind_10m"),
+            "y_wind_10m": Variable("y_wind_10m"),
+            "x_wind_z": Variable("x_wind_z"),
+            "y_wind_z": Variable("y_wind_z"),
+            "air_pressure_at_sea_level": Variable("air_pressure_at_sea_level"),
+            "air_temperature_0m": Variable("air_temperature_0m"),
+            "air_temperature_2m": Variable("air_temperature_2m"),
+            "air_temperature_z": Variable("air_temperature_z"),
+            'phi_z': Variable('phi_z'),
+            'r_z': Variable('r_z'),
+            'phi_10m': Variable('phi_10m'),
+            'r_10m': Variable('r_10m'),
+            'site_production': Variable('site_production'),
+            'lead_time': Variable('lead_time'),
+            'time_of_day': Variable('time_of_day'),
+        },
+        "ECMWF_EPS-CF": {
+            "u10" : Variable('u10'),
+            "v10": Variable('v10'),
+            "u100": Variable('u100'),
+            "v100": Variable('v100'),
+            #"u200",
+            #"v200",
+            "i10fg": Variable('i10fg'),
+            "t2m": Variable('t2m'),
+            'phi_u10_v10': Variable('phi_u10_v10'),
+            'r_u10_v10': Variable('r_u10_v10'),
+            'phi_u100_v100': Variable('phi_u100_v100'),
+            'r_u100_v100': Variable('r_u100_v100'),
+            'lead_time': Variable('lead_time'),
+            'time_of_day': Variable('time_of_day'),
+            'site_production': Variable('site_production'),
+        },
+    "ECMWF_HRES": {
+            "u10" : Variable('u10'),
+            "v10": Variable('v10'),
+            "u100": Variable('u100'),
+            "v100": Variable('v100'),
+            #"u200",
+            #"v200",
+            "i10fg": Variable('i10fg'),
+            "t2m": Variable('t2m'),
+            'phi_u10_v10': Variable('phi_u10_v10'),
+            'r_u10_v10': Variable('r_u10_v10'),
+            'phi_u100_v100': Variable('phi_u100_v100'),
+            'r_u100_v100': Variable('r_u100_v100'),
+            'lead_time': Variable('lead_time'),
+            'time_of_day': Variable('time_of_day'),
+            'site_production': Variable('site_production'),
+        },
+        'DWD_ICON-EU#ECMWF_EPS-CF#ECMWF_HRES#NCEP_GFS' :  {
+            'DWD_ICON-EU$T': Variable('DWD_ICON-EU$T'),
+            'DWD_ICON-EU$U': Variable('DWD_ICON-EU$U'),
+            'DWD_ICON-EU$V': Variable('DWD_ICON-EU$V'),
+            'ECMWF_EPS-CF$i10fg': Variable('ECMWF_EPS-CF$i10fg'),
+            'ECMWF_EPS-CF$t2m': Variable('ECMWF_EPS-CF$t2m'),
+            'ECMWF_EPS-CF$u10': Variable('ECMWF_EPS-CF$u10'),
+            'ECMWF_EPS-CF$u100': Variable('ECMWF_EPS-CF$u100'),
+            'ECMWF_EPS-CF$v10': Variable('ECMWF_EPS-CF$v10'),
+            'ECMWF_EPS-CF$v100': Variable('ECMWF_EPS-CF$v100'),
+            'ECMWF_HRES$i10fg': Variable('ECMWF_HRES$i10fg'),
+            'ECMWF_HRES$t2m': Variable('ECMWF_HRES$t2m'),
+            'ECMWF_HRES$u10': Variable('ECMWF_HRES$u10'),
+            'ECMWF_HRES$u100': Variable('ECMWF_HRES$u100'),
+            'ECMWF_HRES$v10': Variable('ECMWF_HRES$v10'),
+            'ECMWF_HRES$v100': Variable('ECMWF_HRES$v100'),
+            'NCEP_GFS$Temperature_Height': Variable('NCEP_GFS$Temperature_Height'),
+            'NCEP_GFS$WindUMS_Height': Variable('NCEP_GFS$WindUMS_Height'),
+            'NCEP_GFS$WindVMS_Height': Variable('NCEP_GFS$WindVMS_Height'),
+            'DWD_ICON-EU$r_U_V': Variable('DWD_ICON-EU$r_U_V'),
+            'DWD_ICON-EU$phi_U_V': Variable('DWD_ICON-EU$phi_U_V'),
+            'ECMWF_EPS-CF$r_u10_v10': Variable('ECMWF_EPS-CF$r_u10_v10'),
+            'ECMWF_EPS-CF$phi_u10_v10': Variable('ECMWF_EPS-CF$phi_u10_v10'),
+            'ECMWF_HRES$r_u10_v10': Variable('ECMWF_HRES$r_u10_v10'),
+            'ECMWF_HRES$phi_u10_v10': Variable('ECMWF_HRES$phi_u10_v10'),
+            'ECMWF_EPS-CF$r_u100_v100': Variable('ECMWF_EPS-CF$r_u100_v100'),
+            'ECMWF_EPS-CF$phi_u100_v100': Variable('ECMWF_EPS-CF$phi_u100_v100'),
+            'ECMWF_HRES$r_u100_v100': Variable('ECMWF_HRES$r_u100_v100'),
+            'ECMWF_HRES$phi_u100_v100': Variable('ECMWF_HRES$phi_u100_v100'),
+            'NCEP_GFS$r_WindUMS_Height_WindVMS_Height': Variable('NCEP_GFS$r_WindUMS_Height_WindVMS_Height'),
+            'NCEP_GFS$phi_WindUMS_Height_WindVMS_Height': Variable('NCEP_GFS$phi_WindUMS_Height_WindVMS_Height'),
+            'lead_time': Variable('lead_time'),
+            'time_of_day': Variable('time_of_day'),
+            'site_production': Variable('site_production'),
+        },
+
     },
-    "ECMWF_EPS-CF": {
-        "u10" : Variable('u10'),
-        "v10": Variable('v10'),
-        "u100": Variable('u100'),
-        "v100": Variable('v100'),
-        #"u200",
-        #"v200",
-        "i10fg": Variable('i10fg'),
-        "t2m": Variable('t2m'),
-        'phi_10': DiscretizedVariableEvenBins('phi_10', (-np.pi, np.pi), 64,
-                                              one_hot_encode=True),
-        'r_10': Variable('r_10'),
-        'phi_100': DiscretizedVariableEvenBins('phi_10', (-np.pi, np.pi), 64,
-                                               one_hot_encode=True),
-        'r_100': Variable('r_10'),
-        'lead_time': Variable('lead_time'),
-        'time_of_day': CategoricalVariable('time_of_day', levels=np.arange(24),
-                                           mapping={i: i for i in range(24)},
-                                           one_hot_encode=True),
-        'site_production': Variable('site_production'),
-    },
-},
-weather_variables={
-    'DWD_ICON-EU':  ['T', 'U', 'V', 'phi', 'r', 'lead_time', 'time_of_day'],
-    "FMI_HIRLAM": ["Temperature", "WindUMS", "WindVMS", 'phi', 'r', 'lead_time', 'time_of_day'],
-    "NCEP_GFS": ['WindUMS_Height', 'WindVMS_Height', 'Temperature_Height', 'phi', 'r', 'lead_time', 'time_of_day'],
-    "MetNo_MEPS": ["x_wind_10m", "y_wind_10m", "x_wind_z", "y_wind_z", "air_pressure_at_sea_level",
-                   "air_temperature_0m", "air_temperature_2m", "air_temperature_z",
-                   'phi_10m', 'r_10m', 'phi_z', 'r_z', 'lead_time', 'time_of_day'],
-    "ECMWF_EPS-CF": ["u10",
-                     "v10",
-                     "u100",
-                     "v100",
-                     #"u200",
-                     #"v200",
-                     "i10fg",
-                     "t2m",
-                     'phi_10', 'r_10', 'phi_100', 'r_100',
-                     'lead_time',
-                     'time_of_day']
-}
-)
+    weather_variables={
+        'DWD_ICON-EU':  ['T', 'U', 'V', 'phi_U_V', 'r_U_V', 'lead_time', 'time_of_day'],
+        "FMI_HIRLAM": ["Temperature", "WindUMS", "WindVMS", 'phi', 'r', 'lead_time', 'time_of_day'],
+        "NCEP_GFS": ['WindUMS_Height', 'WindVMS_Height', 'Temperature_Height',   'phi_WindUMS_Height_WindVMS_Height',
+                     'r_WindUMS_Height_WindVMS_Height', 'lead_time', 'time_of_day'],
+        "MetNo_MEPS": ["x_wind_10m", "y_wind_10m", "x_wind_z", "y_wind_z", "air_pressure_at_sea_level",
+                       "air_temperature_0m", "air_temperature_2m", "air_temperature_z",
+                       'phi_10m', 'r_10m', 'phi_z', 'r_z', 'lead_time', 'time_of_day'],
+        "ECMWF_EPS-CF": ["u10",
+                         "v10",
+                         "u100",
+                         "v100",
+                         #"u200",
+                         #"v200",
+                         "i10fg",
+                         "t2m",
+                         'phi_u10_v10',
+                         'r_u10_v10',
+                         'phi_u100_v100',
+                         'r_u100_v100',
+                         'lead_time',
+                         'time_of_day'],
+        "ECMWF_HRES": ["u10",
+                       "v10",
+                       "u100",
+                       "v100",
+                       # "u200",
+                       # "v200",
+                       "i10fg",
+                       "t2m",
+                       'phi_u10_v10',
+                       'r_u10_v10',
+                       'phi_u100_v100',
+                       'r_u100_v100',
+                       'lead_time',
+                       'time_of_day'],
+        'DWD_ICON-EU#ECMWF_EPS-CF#ECMWF_HRES#NCEP_GFS' :  [
+            'DWD_ICON-EU$T',
+            'DWD_ICON-EU$U',
+            'DWD_ICON-EU$V',
+            'ECMWF_EPS-CF$i10fg',
+            'ECMWF_EPS-CF$t2m',
+            'ECMWF_EPS-CF$u10',
+            'ECMWF_EPS-CF$u100',
+            'ECMWF_EPS-CF$v10',
+            'ECMWF_EPS-CF$v100',
+            'ECMWF_HRES$i10fg',
+            'ECMWF_HRES$t2m',
+            'ECMWF_HRES$u10',
+            'ECMWF_HRES$u100',
+            'ECMWF_HRES$v10',
+            'ECMWF_HRES$v100',
+            'NCEP_GFS$Temperature_Height',
+            'NCEP_GFS$WindUMS_Height',
+            'NCEP_GFS$WindVMS_Height',
+            'DWD_ICON-EU$r_U_V',
+            'DWD_ICON-EU$phi_U_V',
+            'ECMWF_EPS-CF$r_u10_v10',
+            'ECMWF_EPS-CF$phi_u10_v10',
+            'ECMWF_HRES$r_u10_v10',
+            'ECMWF_HRES$phi_u10_v10',
+            'ECMWF_EPS-CF$r_u100_v100',
+            'ECMWF_EPS-CF$phi_u100_v100',
+            'ECMWF_HRES$r_u100_v100',
+            'ECMWF_HRES$phi_u100_v100',
+            'NCEP_GFS$r_WindUMS_Height_WindVMS_Height',
+            'NCEP_GFS$phi_WindUMS_Height_WindVMS_Height',
+            'lead_time',
+            'time_of_day',
+        ],
+    })
+
 
 DEFAULT_DATASET_CONFIG = DatasetConfig(horizon=30,
                                        window_length=7,
@@ -672,25 +766,14 @@ def main_old():
 
     site_dataset = SiteDataset(dataset_path=args.site_datafile,
                                dataset_config=dataset_config,
-                               variables_config=DEFAULT_VARIABLE_CONFIG)
-    zero_std_vars = Counter()
-    for i, (fold, remainder) in enumerate(site_dataset.k_fold_split(10)):
-        for j, (inner_fold, inner_remainder) in enumerate(remainder.k_fold_split(10)):
-            data = inner_fold[:]
-            x = data['x']
-            std = np.std(x, axis=0)
-            zero_std_i, = np.where(std == 0)
-            variable_index = data['variable_info']
-            for i in zero_std_i:
-                for var, (start, end, var_type) in variable_index.items():
-                    if start <= i < end:
-                        zero_std_vars[var] += 1
-    print(zero_std_vars)
+                               variables_config=DEFAULT_VARIABLES_CONFIG)
+    for i in range(32):
+        print(site_dataset[i]['target_time'])
 
 
 
 
 if __name__ == '__main__':
-    main()
+    main_old()
 
 

@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 from windpower.dataset import SplitConfig, make_all_site_splits
-from mltrain.util import load_config
+from windpower.mltrain.util import load_config
 
 def main():
     parser = argparse.ArgumentParser(description='Script to generate datetime splits')

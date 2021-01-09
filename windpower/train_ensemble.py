@@ -18,10 +18,10 @@ np.seterr(all='warn')
 
 import numpy as np
 
-import mltrain.train
-from mltrain.util import load_config
-from mltrain.train import TrainingArguments, TrainingConfig
-from mltrain.hyperparameter import HyperParameterTrainer, HyperParameterManager
+import windpower.mltrain.train
+from windpower.mltrain.util import load_config
+from windpower.mltrain.train import TrainingArguments, TrainingConfig
+from windpower.mltrain.hyperparameter import HyperParameterTrainer, HyperParameterManager
 from windpower.utils import load_config
 from windpower.dataset import DatasetConfig, VariableConfig, SplitConfig
 from windpower.models import ModelConfig
@@ -33,7 +33,7 @@ class HPConfig(object):
 
 @dataclass
 class HPSettings(object):
-    train_config: mltrain.train.TrainingConfig
+    train_config: TrainingConfig
     dataset_config: DatasetConfig
     variables_config: VariableConfig
     model_config: ModelConfig
@@ -121,7 +121,7 @@ def train_on_site(*,
                   dataset_config:DatasetConfig,
                   variables_config: VariableConfig,
                   model_config: ModelConfig,
-                  training_config: mltrain.train.TrainingConfig,
+                  training_config: TrainingConfig,
                   hp_config: HPConfig,
                   splits,
                   split_config: SplitConfig,
@@ -140,23 +140,25 @@ def train_on_site(*,
         train_metadata = copy.copy(metadata)
         train_metadata['hp_settings'] = settings
 
+
         base_model = settings.model_config.model
         model = base_model(*settings.model_config.model_args,
                            training_dataset=train_dataset,
                            validation_dataset=validation_dataset,
                            **settings.model_config.model_kwargs)
-        train_dataset = train_dataset[
-                        :]  # The training script assumes the dataset is an iterator over mini-batches. We but all the data in a single batch
-        validation_dataset = validation_dataset[:]
-        return mltrain.train.TrainingArguments(model=model,
-                                               output_dir=settings.output_dir,
-                                               training_dataset=train_dataset,
-                                               evaluation_dataset=validation_dataset,
-                                               metadata=train_metadata,
-                                               artifacts={'settings': settings,
-                                                          'splits': splits,
-                                                          'split_config': split_config},
-                                               training_config=training_config)
+
+        train_dataset = model.prepare_dataset(train_dataset)
+        validation_dataset = model.prepare_dataset(validation_dataset)
+
+        return TrainingArguments(model=model,
+                                 output_dir=settings.output_dir,
+                                 training_dataset=train_dataset,
+                                 evaluation_dataset=validation_dataset,
+                                 metadata=train_metadata,
+                                 artifacts={'settings': settings,
+                                            'splits': splits,
+                                            'split_config': split_config},
+                                 training_config=training_config)
 
     for split in splits:
         if len(split) == 3:
@@ -206,7 +208,7 @@ def train_on_site(*,
                     training_args = prepare_settings(best_params)
                     best_inner_params_dir = outer_fold_dir / f'best_inner_setting_{i:02}'
                     training_args.output_dir = best_inner_params_dir
-                    mltrain.train.train(training_args=training_args)
+                    windpower.mltrain.train.train(training_args=training_args)
             else:
                 raise NotImplementedError("Only test/train split has not been implemented")
         else:
@@ -241,38 +243,44 @@ def train_on_site(*,
             training_args = prepare_settings(best_params)
             best_params_dir = outer_fold_dir / f'best_setting'
             training_args.output_dir = best_params_dir
-            mltrain.train.train(training_args=training_args)
+            windpower.mltrain.train.train(training_args=training_args)
 
 
 def evaluate_model(test_reference_times,
                    best_inner_model_path: Path,
-                   best_inner_models_eval_dir: Path):
+                   best_inner_models_eval_dir: Path,
+                   dataset_path: Path = None):
     best_inner_model_dir = best_inner_model_path.parent
     shutil.copytree(best_inner_model_dir, best_inner_models_eval_dir)
     with open(best_inner_model_dir / 'artifacts' / 'settings.pkl', 'rb') as fp:
         settings = pickle.load(fp)
     with open(best_inner_model_dir / 'metadata.json') as fp:
         metadata = json.load(fp)
-    dataset_path = metadata['experiment_config']['site_dataset_path']
+    if dataset_path is None:
+        dataset_path = metadata['experiment_config']['site_dataset_path']
     dataset_config = settings.dataset_config
     dataset_config.include_variable_config = True
     test_dataset = SiteDataset(dataset_path=Path(dataset_path),
                                reference_time=test_reference_times,
                                variables_config=settings.variables_config,
                                dataset_config=dataset_config)
-    with open(best_inner_model_dir / 'best_model', 'rb') as fp:
-        model = pickle.load(fp)
+
+    # Loading the model is a bit more complicated than just using pickle
+    model_config = settings.model_config
+    model = model_config.model(*model_config.model_args, **model_config.model_kwargs, test_dataset = test_dataset)
+    model = model.load(best_inner_model_dir / 'best_model')
 
     test_predictions = []
     data = test_dataset[:]
     x = data['x']
     y = data['y']
+    target_times = data['target_time']
     variable_info = {v: (start_i, end_i, str(var_type)) for v, (start_i, end_i, var_type) in data['variable_info'].items()}
     predictions = model.predict(x)
     test_predictions.append(predictions)
     with open(best_inner_models_eval_dir / 'test_variable_definitions.json', 'w') as fp:
         json.dump(variable_info, fp)
-    np.savez(best_inner_models_eval_dir / 'test_predictions.npz', x=x, y=y, y_hat=predictions)
+    np.savez(best_inner_models_eval_dir / 'test_predictions.npz', x=x, y=y, y_hat=predictions, target_times=target_times)
 
 
 
@@ -307,7 +315,7 @@ def gather_experiment_data(experiment):
     if best_model_path.exists():
         with open(best_model_path, 'rb') as fp:
             best_model = pickle.load(fp)
-        if isinstance(best_model, mltrain.train.BaseModel):
+        if isinstance(best_model, windpower.mltrain.train.BaseModel):
             model_metadata = best_model.get_metadata()
             for k, v in model_metadata.items():
                 if k == 'args':

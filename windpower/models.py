@@ -6,8 +6,8 @@ import numpy as np
 import sklearn.metrics
 from sklearn.decomposition import PCA
 
-from mltrain.performance import LowerIsBetterMetric, HigherIsBetterMetric
-from mltrain.train import FullbatchModel
+from windpower.mltrain.performance import LowerIsBetterMetric, HigherIsBetterMetric
+from windpower.mltrain.train import FullbatchModel
 
 from windpower.dataset import VariableType
 from dataclasses import dataclass
@@ -34,6 +34,9 @@ class SklearnWrapper(FullbatchModel):
             self.scaling = True
         self.args = args
         self.kwargs = kwargs
+
+    def prepare_dataset(self, dataset):
+        return dataset
 
     def fit_normalizer(self, x, variable_info=None):
         if self.scaling:
@@ -115,6 +118,11 @@ class SklearnWrapper(FullbatchModel):
             pickle.dump(self.model, fp)
         return save_path
 
+    def load(self, model_path: Path):
+        with open(model_path, 'rb') as fp:
+            model = pickle.load(fp)
+        return model
+
 
 class LightGBMWrapper(SklearnWrapper):
     def __init__(self, *args, early_stopping_rounds=None, eval_metric=('l1',), **kwargs):
@@ -122,7 +130,8 @@ class LightGBMWrapper(SklearnWrapper):
         self.early_stopping_rounds = early_stopping_rounds
         self.eval_metric = eval_metric
 
-    def fit_dataset(self, batch):
+    def fit_dataset(self, dataset):
+        batch = dataset[:]
         x = batch['x']
         y = batch['y']
         variable_info = batch.get('variable_info', None)

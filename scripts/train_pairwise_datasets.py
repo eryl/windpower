@@ -3,7 +3,7 @@ import itertools
 from collections import defaultdict
 from pathlib import Path
 
-from mltrain.util import load_config
+from windpower.mltrain.util import load_config
 
 from windpower.dataset import get_site_id, SplitConfig, make_site_splits, get_nwp_model
 from windpower.train_ensemble import train

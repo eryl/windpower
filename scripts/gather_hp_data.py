@@ -6,7 +6,7 @@ import re
 import numpy as np
 from csv import DictWriter, DictReader
 from windpower.train_ensemble import parse_experiment_directory
-import mltrain.train
+import windpower.mltrain.train
 from tqdm import tqdm
 
 def main():

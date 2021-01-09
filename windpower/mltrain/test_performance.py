@@ -1,5 +1,5 @@
 import unittest
-from mltrain.performance import PerformanceCollection, Performance, HigherIsBetterMetric, LowerIsBetterMetric, setup_metrics
+from windpower.mltrain.performance import PerformanceCollection, Performance, HigherIsBetterMetric, LowerIsBetterMetric, setup_metrics
 
 
 class TestPerformance(unittest.TestCase):

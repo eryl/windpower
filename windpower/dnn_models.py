@@ -1,10 +1,19 @@
 import io
 import pickle
+from typing import Sequence, Mapping, Dict, List, Optional, Union, Type
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.optim import SGD, Adam, AdamW
+from torch.utils.data import DataLoader
 import numpy as np
+
+from windpower.dataset import SiteDataset
+from windpower.mltrain.train import MinibatchModel
+from windpower.mltrain.performance import LowerIsBetterMetric, EvaluationMetric
+
 
 class DummyModel(object):
     def fit(self, sites, history, forecast, target):
@@ -12,6 +21,7 @@ class DummyModel(object):
 
     def predict(self, sites, history, forecast, target):
         return 1
+
 
 class FeedforwardBlock(nn.Module):
     def __init__(self, input_dim, output_dim, dropout_p=0.5, activation_fn=None):
@@ -21,62 +31,165 @@ class FeedforwardBlock(nn.Module):
         self.linear = nn.Linear(input_dim, output_dim)
         self.activation_fn = activation_fn() if activation_fn is not None else None
 
-    def forward(self, input):
-        x = self.bn(input)
+    def forward(self, x):
+        #x = self.bn(input)
         x = self.dropout(x)
         x = self.linear(x)
         if self.activation_fn is not None:
             x = self.activation_fn(x)
         return x
 
+
+@dataclass
+class TorchWrapperConfig:
+    batch_size: int
+    device: torch.device
+    model_class: Type
+    model_args: Sequence
+    model_kwargs: Mapping
+
+
+class TorchWrapper(MinibatchModel):
+    def __init__(self, config: TorchWrapperConfig,
+                 training_dataset: SiteDataset = None,
+                 validation_dataset: SiteDataset = None,
+                 test_dataset: SiteDataset=None,
+                 rng=None):
+        self.config = config
+
+        if rng is None:
+            rng = np.random.default_rng()
+        self.rng = rng
+
+        # We need to figure out the input and output dimensions
+        dataset = training_dataset if training_dataset is not None else validation_dataset if validation_dataset is not None else test_dataset
+        if dataset is not None:
+            observation = dataset[0]
+            x = observation['x']
+            y = observation['y']
+            input_dim = x.shape[0]
+            if len(y.shape) == 0:
+                output_dim = 1
+            else:
+                output_dim = y.shape[0]
+
+            input_dim = input_dim
+            output_dim = output_dim
+        else:
+            raise ValueError("No dataset given, can't infer input and output dimensions")
+
+        self.device = config.device
+        self.model = self.config.model_class(*self.config.model_args, input_dim = input_dim, output_dim = output_dim, **self.config.model_kwargs, rng=rng)
+        self.model = self.model.to(self.device)
+
+    def prepare_dataset(self, dataset, shuffle=True):
+        def collate_fn(batch):
+            x = np.stack([row['x'] for row in batch], axis=0)
+            y = np.stack([row['y'] for row in batch], axis=0)
+            time = [row['target_time']for row in batch]
+            var_info = [row['variable_info'] for row in batch]
+            return dict(x=torch.tensor(x, dtype=torch.float32), y=torch.tensor(y, dtype=torch.float32), target_time=time, variable_info=var_info)
+
+        return DataLoader(dataset, batch_size=self.config.batch_size,
+                          shuffle=shuffle, drop_last=False, collate_fn=collate_fn)
+
+    def get_metadata(self):
+        return dict()
+
+    def fit_batch(self, batch) -> Dict:
+        x = batch['x']
+        y = batch['y']
+        x = x.to(device=self.device)
+        y = y.to(device=self.device)
+
+        self.model.train()
+        self.model.optim.zero_grad()
+
+        y_hat = self.model(x)
+        loss = self.model.loss_fn(y_hat.squeeze(), y)
+        loss.backward()
+        self.model.optim.step()
+        return {'training_loss': loss.detach().item()}
+
+    def evaluate_batch(self, batch) -> Dict:
+        self.model.eval()
+        with torch.no_grad():
+            x = batch['x']
+            y = batch['y']
+            x = x.to(device=self.device)
+            y = y.to(device=self.device)
+
+            y_hat = self.model(x)
+            loss = self.model.loss_fn(y_hat.squeeze(), y)
+            mean_absolute_error = torch.abs(y_hat.clip(0,1) - y).mean()
+            return {'mean_absolute_error': mean_absolute_error.item(), 'evaluation_loss': loss.detach().item()}
+
+    def evaluation_metrics(self) -> List[EvaluationMetric]:
+        return [LowerIsBetterMetric('mean_absolute_error'), LowerIsBetterMetric('evaluation_loss')]
+
+    def predict(self, x):
+        with torch.no_grad():
+            x = torch.tensor(x, dtype=torch.float32, device=self.device)
+            y_hat = self.model(x).clip(0, 1)
+            return y_hat.cpu().numpy()
+
+    def save(self, save_path: Path) -> Union[str, Path]:
+        save_path = save_path.with_name(save_path.name + '.pth')  # The filename might contain dots in floating point valuies, we shouldnt use with_suffix
+        #self.to('cpu')
+        torch.save(self.model.to('cpu').state_dict(), save_path)
+        self.model.to(self.device)
+        return save_path
+
+    def load(self, load_path: Path):
+        state_dict = torch.load(load_path)
+        self.model.load_state_dict(state_dict)
+        self.model = self.model.to(self.device)
+        return self
+
+
+@dataclass
+class NNTabularConfig:
+    n_layers: int
+    layer_size: int
+    dropout_p: float
+    optim_class: type
+    skip_connections: bool = True
+    limit_range: bool = True
+    optim_args: Sequence = field(default_factory=set)
+    optim_kwargs: Mapping = field(default_factory=dict)
+
+
 class NNTabularModel(nn.Module):
-    def __init__(self, input_dim, output_dim, n_layers, layer_size, device=None, dropout_p=0.5, rng_seed=1729,
-                 optim_args=None, optim_kwargs=None, skip_connections=False, limit_range=True):
+    def __init__(self, config: NNTabularConfig, *, input_dim, output_dim, rng=None):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.n_layers = n_layers
-        self.layer_size = layer_size
-        self.init_args = (input_dim, output_dim, n_layers, layer_size)
-        self.init_kwargs = dict(dropout_p=dropout_p, rng_seed=rng_seed,
-                                skip_connections=skip_connections,
-                                optim_args=optim_args,
-                                optim_kwargs=optim_kwargs,
-                                limit_range=limit_range)
-        if optim_args is None:
-            optim_args = set()
-        if optim_kwargs is None:
-            optim_kwargs = dict()
-        self.rng = np.random.RandomState(rng_seed)
+
+        self.config = config
+        self.layers = None
+
+        self.n_layers = self.config.n_layers
+        self.layer_size = self.config.layer_size
 
         layers = []
-        self.skip_connections = skip_connections
-        self.limit_range = limit_range
-        self.input_transform = nn.Linear(input_dim, layer_size)
-        dim_from_below = layer_size
-        for i in range(n_layers):
-            layers.append(FeedforwardBlock(dim_from_below, layer_size, activation_fn=nn.ReLU))
-            dim_from_below = layer_size
-        self.output_layer = FeedforwardBlock(dim_from_below, output_dim, activation_fn=None)
+        self.skip_connections = self.config.skip_connections
+        self.limit_range = self.config.limit_range
+
+        self.projection_layer = nn.Linear(self.input_dim, self.config.layer_size,
+                                          bias=False)  # the projection layer makes sure the input is of the same dimension as the other layers so we can use residual connections
+        dim_from_below = self.config.layer_size
+        for i in range(self.config.n_layers):
+            layers.append(FeedforwardBlock(dim_from_below, self.config.layer_size, activation_fn=nn.ReLU))
+            dim_from_below = self.config.layer_size
+        self.output_layer = FeedforwardBlock(dim_from_below, self.output_dim, activation_fn=None)
         self.layers = nn.ModuleList(layers)
         self.loss_fn = nn.MSELoss()
-        self.optim = AdamW(self.parameters(), *optim_args, **optim_kwargs) # lr=learning_rate, weight_decay=adam_wd, betas=(adam_beta1, adam_beta2), eps=adam_eps, )
-        if device is not None:
-            self.to(device)
-            for l in self.layers:
-                l.to(device)
-        self.device = device
+        self.optim = self.config.optim_class(self.parameters(), *self.config.optim_args,
+                                             **self.config.optim_kwargs)  # lr=learning_rate, weight_decay=adam_wd, betas=(adam_beta1, adam_beta2), eps=adam_eps, )
 
-    def get_metadata(self):
-        metadata = dict(input_dim=self.input_dim,
-                        output_dim=self.output_dim,
-                        n_layers=self.n_layers,
-                        layer_size=self.layer_size)
-        metadata.update(self.init_kwargs)
-        return metadata
 
-    def forward(self, input):
-        x = self.input_transform(input)
+    def forward(self, x):
+        x = self.projection_layer(x)  # Make sure x is of the right dimension for the residual connections to work
         for block in self.layers:
             if self.skip_connections:
                 x = block(x) + x
@@ -86,57 +199,6 @@ class NNTabularModel(nn.Module):
         if self.limit_range:
             x = torch.sigmoid(x)*1.1 - 0.05
         return x
-
-    def fit(self, batch):
-        self.train(True)
-        self.optim.zero_grad()
-        x, y = batch
-        x = x.to(self.device)
-        y = y.to(self.device)
-        y_hat = self(x)
-        loss = self.loss_fn(y_hat.squeeze(), y)
-        loss.backward()
-        self.optim.step()
-        return {'training_loss': loss.detach().item()}
-
-    def evaluate(self, batch):
-        self.train(False)
-        with torch.no_grad():
-            x, y = batch
-            x = x.to(self.device)
-            y = y.to(self.device)
-            y_hat = self(x)
-            loss = self.loss_fn(y_hat.squeeze(), y)
-            return {'evaluation_loss': loss.detach().item()}
-
-    def save(self, path):
-        torch_model_state = io.BytesIO()
-        torch.save(self.state_dict(), torch_model_state)
-        save_state = dict(init_args=self.init_args,
-                          init_kwargs=self.init_kwargs,
-                          model_state=torch_model_state.getvalue())
-        with open(path, 'wb') as fp:
-            pickle.dump(save_state, fp)
-
-    @classmethod
-    def load(cls, path, device=None):
-        with open(path, 'rb') as fp:
-            saved_state = pickle.load(fp)
-        torch_model_state = torch.load(io.BytesIO(saved_state['model_state']))
-        if 'init_args' in saved_state:
-            init_args = saved_state['init_args']
-        else:
-            init_args = tuple()
-        if 'init_kwargs' in saved_state:
-            init_kwargs = saved_state['init_kwargs']
-        else:
-            init_kwargs = dict()
-        model = cls(*init_args, **init_kwargs)
-        model.load_state_dict(torch_model_state)
-        if device is not None:
-            model.to(device)
-        return model
-
 
 
 class CNNBaseLine(nn.Module):
