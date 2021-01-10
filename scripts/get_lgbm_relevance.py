@@ -50,13 +50,7 @@ def main():
             except:
                 continue
 
-    feature_names_col = []
-    rank_col = []
-    for feature_name, rankings in feature_rankings.items():
-        feature_names_col.extend([feature_name]*len(rankings))
-        rank_col.extend(rankings)
-
-    dataframe = pd.DataFrame(dict(feature=feature_names_col, rank=rank_col))
+    dataframe = pd.DataFrame(dict(feature_rankings))
     performance_name = 'feature_importance.csv'
     if args.hostname_tag:
         import platform
