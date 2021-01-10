@@ -351,20 +351,15 @@ def gather_experiment_data(experiment, lead_time_interval=None):
 
         y = predictions['y']
         y_hat = predictions['y_hat']
+        mae = np.abs(y - y_hat)
 
-        if lead_time_interval is not None:
-            # Lead time is for the start of the NWP window, to get the lead time for the production we need to add the production offset
-            production_offset = settings.dataset_config.production_offset
-            lead_time = x[:, lead_time_column] + production_offset
-            time_of_day = x[:, time_of_day_column]
+        production_offset = settings.dataset_config.production_offset
+        time_of_day = x[:, time_of_day_column]
+        lead_times = x[:, lead_time_column] + production_offset
+        for lead_time in np.unique(lead_times.astype(np.int)):
+            experiment_data[f'mae_{lead_time:02}'] = mae[lead_times == lead_time].mean()
 
-            print(f"Filtering predictions based on lead time {lead_time_interval}")
-            lead_time_mask = np.logical_and(lead_time > lead_time_interval[0], lead_time < lead_time_interval[1])
-            y = y[lead_time_mask]
-            y_hat = y_hat[lead_time_mask]
-
-        mae = np.abs(y - y_hat).mean()
-        experiment_data['mae'] = mae
+        experiment_data['mae'] = mae.mean()
     else:
         best_performance_path = experiment / 'best_performance.csv'
         if best_performance_path.exists():
