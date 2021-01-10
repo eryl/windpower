@@ -29,7 +29,7 @@ dataset_config = DatasetConfig(
 batch_size = 128
 
 n_layers = DiscreteHyperParameter([1, 2, 3, 4, 5])
-layer_size = DiscreteHyperParameter([1, 16, 32, 64, 128])
+layer_size = DiscreteHyperParameter([8, 16, 32, 64, 128])
 dropout_p = LinearHyperParameter(0, 0.7)
 
 nnconfig = NNTabularConfig(n_layers=n_layers,
