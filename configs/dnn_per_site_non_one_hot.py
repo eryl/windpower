@@ -76,7 +76,7 @@ split_config = SplitConfig(outer_folds=outer_folds,
                            split_padding=fold_padding)
 
 
-hp_config = HPConfig(hp_search_iterations=10)
+hp_config = HPConfig(hp_search_iterations=hp_search_iterations)
 
 variables_config = VariableConfig(
     production_variable={
