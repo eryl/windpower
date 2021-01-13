@@ -1,22 +1,23 @@
 # Wind Power Forecasting Test Bed
-Python package for performing wind power forecast based on numerical weather forecasts.
+Python-based package for performing prediction tasks based on numerical weather forecasts.
 
-The package is based on the idea that there is some target you want to predict based on NWPs and is
-structured around handling this problem easily. It is assumed that the target is spatial (i.e. has a geographic position).
+The package is based on the assumption that there is some numerical target you want to predict based on NWPs and is
+structured around simplifying this problem, including flexible support for different machine learning models, hyper parameter optimization and cross validation.
+It is assumed that the target is spatial (i.e. has a geographic position).
 The intended use is for wind power prediction but could be used to predict any variable based on spatial data (e.g. ice
 cream consumption or solar power production)
 
-# Target
+## Target
 The target variable is defined by its geographical position and measurements.
 Location information should be a in a CSV file with three columns, the location id, latitude and longitude.
 Measurments should be a csv file where the first column is the time, and the remaining columns are production values for
 the locations over time.
 
-# Downloading data
+## Downloading data
 Data is downloaded based on the location csv's. The coordinate file determines which coordinates are downloaded while
 the measurements CSV file determines what date intervals will be downloaded.
 
-# Configuration
+## Configuration
 All configuration is based on python files.
 There are three main configurations:
   - Dataset layout: This determines who the forecasts are converted into dataset, how they are windowed, what
@@ -25,7 +26,7 @@ There are three main configurations:
   - Training config: This defines how the training should be performed, such as cross validation strategy
 
 
-# Getting started
+## Getting started
 First create a coordinate specification csv (assuming a POSIX system)
 
 # printf "Latitude,Longitude\n65.584819,22.1567026" > data/lulea_coords.csv
