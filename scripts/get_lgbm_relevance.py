@@ -24,7 +24,7 @@ def main():
 
     args = parser.parse_args()
 
-    nwp_feature_rankings = defaultdict(lambda: defaultdict(list))
+    nwp_feature_rankings = defaultdict(list)
     for d in args.experiment_directories:
 
         for outer_fold_dir in tqdm(list(d.glob('**/outer_fold_*')), desc="Outer folds"):
@@ -39,29 +39,40 @@ def main():
                 with open(best_model_dir / 'test_variable_definitions.json') as fp:
                     variable_definitions = json.load(fp)
 
-                column_names = dict()  # map a feature index to its column name
+                column_indices = []
+                variabel_indices = []
+                column_names = []
                 for name, (col_start, col_end, var_type) in variable_definitions.items():
                     for i in range(col_start, col_end):
                         var_i = i - col_start
-                        column_name = f'{name}_{var_i:03}'
-                        column_names[i] = column_name
+                        column_names.append(name)
+                        variabel_indices.append(var_i)
+                        column_indices.append(i)
 
-                feature_importance = model.feature_importances_
-                max_use = np.max(feature_importance)
-                for i, importance in enumerate(feature_importance):
-                    column_name = column_names[i]
-                    feature_rankings[column_name].append(importance/max_use)
+                sort_order = np.argsort(column_indices)
+                column_indices = [column_indices[i] for i in sort_order]
+                variabel_indices = [variabel_indices[i] for i in sort_order]
+                column_names = [column_names[i] for i in sort_order]
+
+                split_feature_importance = np.array(model.booster_.feature_importance('split'))
+                gain_feature_importance = np.array(model.booster_.feature_importance('gain'))
+                split_feature_importance = split_feature_importance / max(split_feature_importance)
+                gain_feature_importance = gain_feature_importance / max(gain_feature_importance)
+
+                feature_rankings.append(pd.DataFrame(dict(feature_index=column_indices, feature_subindex=variabel_indices, name=column_names, split=split_feature_importance, gain=gain_feature_importance)))
 
     for nwp_model, feature_rankings in nwp_feature_rankings.items():
-        dataframe = pd.DataFrame(dict(feature_rankings))
         performance_name = f'feature_importance_{nwp_model}.csv'
         if args.hostname_tag:
             import platform
             hostname = platform.node()
             performance_name = hostname + '_' + performance_name
 
+
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        dataframe.to_csv(args.output_dir / performance_name, index=False)
+        full_feature_rankings = pd.concat(feature_rankings)
+        full_feature_rankings.to_csv(args.output_dir / performance_name, index=False)
+
 
 
 if __name__ == '__main__':
