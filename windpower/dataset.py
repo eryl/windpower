@@ -432,7 +432,7 @@ class SiteDataset(object):
         n_valid_times = len(self.dataset['valid_time'])
 
         var_arrays = []
-        var_info = dict()
+        var_info = []
         var_start = 0
         var_end = 0
         for var in self.weather_variables:
@@ -447,9 +447,8 @@ class SiteDataset(object):
             var_values = encoded_values.reshape(n_ref_times, n_valid_times, -1)
             var_arrays.append(var_values)
             var_length = var_values.shape[-1]
-            # Since each variable is repeated window_length number of times, we set the var_index to this value here
-            var_end += var_length*self.window_length
-            var_info[var] = ((var_start, var_end, var_def.type))
+            var_end += var_length
+            var_info.append((var, var_start, var_end, var_def.type))
             var_start = var_end
         # We should now have an array where the first dimension is the number of forecasts, equal to the number of
         # reference times in this array. The second dimension should be valid-time, the number of hours in this forecast.
@@ -464,6 +463,14 @@ class SiteDataset(object):
         # collapse the window_size and trailing dimension (so each window is a single feature vector
         self.feature_vectors = strided.reshape(n_ref_times, self.n_windows_per_forecast, -1)
 
+        # Since we will repeat each variable windo_length number of times, we need to build up the var_info correctly.
+        # We suffix each variable name with the corresponding hour of the window to create a new var_info
+        window_var_info = dict()
+        for i in range(self.window_length):
+            for var, var_start, var_end, var_type in var_info:
+                window_var_info[f'{var}_{i:02}'] = (var_start, var_end, var_type)
+
+
         # We only add the lead time of the first hour of a window (since the other are perfectly linearly dependent,
         # it would harm linear models)
         if 'lead_time' in self.weather_variables:
@@ -474,7 +481,7 @@ class SiteDataset(object):
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, -1)
             var_length = encoded_values.shape[-1]
             var_end += var_length
-            var_info['lead_time'] = ((var_start, var_end, var_def.type))
+            window_var_info['lead_time'] = ((var_start, var_end, var_def.type))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         if 'time_of_day' in self.weather_variables:
@@ -488,11 +495,11 @@ class SiteDataset(object):
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, - 1)
             var_length = encoded_values.shape[-1]
             var_end += var_length
-            var_info['time_of_day'] = ((var_start, var_end, var_def.type))
+            window_var_info['time_of_day'] = ((var_start, var_end, var_def.type))
             var_start = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         self.windows = self.feature_vectors.reshape(n_ref_times*self.n_windows_per_forecast, -1)
-        self.variable_info = var_info
+        self.variable_info = window_var_info
         start_production_indices = self.dataset['production_index'].values
         # Each production index refers to the start of the forecast. To get all production for the forecast, we add
         # the horizon plus target lag
