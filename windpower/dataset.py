@@ -466,8 +466,13 @@ class SiteDataset(object):
         # Since we will repeat each variable windo_length number of times, we need to build up the var_info correctly.
         # We suffix each variable name with the corresponding hour of the window to create a new var_info
         window_var_info = dict()
+        current_col = 0
         for i in range(self.window_length):
             for var, var_start, var_end, var_type in var_info:
+                var_length = var_end - var_start
+                var_start = current_col
+                var_end = current_col + var_length
+                current_col = var_end
                 window_var_info[f'{var}_{i:02}'] = (var_start, var_end, var_type)
 
 
@@ -480,9 +485,10 @@ class SiteDataset(object):
             # We need to reshape the encoded values so that each lead time will be added at each window
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, -1)
             var_length = encoded_values.shape[-1]
-            var_end += var_length
+            var_start = current_col
+            var_end = var_start + var_length
             window_var_info['lead_time'] = ((var_start, var_end, var_def.type))
-            var_start = var_end
+            current_col = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         if 'time_of_day' in self.weather_variables:
             reference_times = self.dataset['reference_time'].values
@@ -494,9 +500,10 @@ class SiteDataset(object):
             encoded_values = var_def.encode(hour_of_day)
             encoded_values = encoded_values.reshape(n_ref_times, self.n_windows_per_forecast, - 1)
             var_length = encoded_values.shape[-1]
-            var_end += var_length
+            var_start = current_col
+            var_end = var_start + var_length
             window_var_info['time_of_day'] = ((var_start, var_end, var_def.type))
-            var_start = var_end
+            current_col = var_end
             self.feature_vectors = np.concatenate([self.feature_vectors, encoded_values], axis=-1)
         self.windows = self.feature_vectors.reshape(n_ref_times*self.n_windows_per_forecast, -1)
         self.variable_info = window_var_info
