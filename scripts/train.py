@@ -34,7 +34,7 @@ def main():
             site_filter = [l.strip() for l in fp]
             datasets = [dataset_path for dataset_path in datasets if get_site_id(dataset_path) in site_filter]
 
-    splits_files_list = list(args.split_files_dir.glob('site_*_splits.pkl'))
+    splits_files_list = list(args.split_files_dir.glob('**/site_*_splits.pkl'))
     train(site_files=datasets,
           experiment_dir=args.output_dir,
           config_path=args.training_config,
