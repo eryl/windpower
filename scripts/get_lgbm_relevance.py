@@ -42,7 +42,12 @@ def main():
                 column_indices = []
                 variabel_indices = []
                 column_names = []
+                current_col = 0
                 for name, (col_start, col_end, var_type) in variable_definitions.items():
+                    var_length = col_end-col_start
+                    col_start = current_col
+                    col_end = col_start + var_length
+                    current_col = col_end
                     for i in range(col_start, col_end):
                         var_i = i - col_start
                         column_names.append(name)
